@@ -1,1 +1,957 @@
-<!DOCTYPE html><html><head><meta charset="utf-8"><title>Ear Tuner Beta</title></head><body><p>Beta build incoming.</p></body></html>
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no, maximum-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Ear Tuner">
+<meta name="theme-color" id="meta-theme" content="#b83c08">
+<!-- Stamped by scripts/deploy.sh — used by the inline version-coherence
+     check below to detect a hybrid-cache state at launch. Source ships
+     with 2026-05-21 14:33 as the literal placeholder. -->
+<meta name="ear-tuner-build" content="2026-05-21 14:33">
+<!-- PWA home-screen icon. MUST be a real PNG file reference — iOS Safari
+     "Add to Home Screen" does not reliably accept data: URLs or JS-generated
+     canvas icons. If you change this, test on iPad Safari: Share → Add to
+     Home Screen → confirm the icon appears on the home screen (not just in
+     the share-sheet preview). Regenerate the PNG from resources/app-icon.svg
+     via the svg-to-png skill. See _shared/design/Fiddle-Apps-Design-Intent.md
+     §PWA Home-Screen Icon. -->
+<link rel="apple-touch-icon" sizes="180x180" href="resources/app-icon-180.png">
+<link rel="icon" type="image/png" href="resources/app-icon-180.png">
+<!-- Boot watchdog — inline so a broken SW serving stale JS files can't
+     stop it from running. Crash-loop self-healing. Detection model:
+     previous session crashed if it never wrote 'et-clean-shutdown' = '1'.
+     Counter increments on bad shutdowns; resets on clean ones.
+     Threshold of 3 means three crashes in a row. Recovery: unregister SW,
+     clear all caches, hard reload. See microbreaker for the rationale. -->
+<script>
+(function () {
+  var COUNTER_KEY  = 'et-boot-attempts';
+  var CLEAN_KEY    = 'et-clean-shutdown';
+  var SUPPRESS_KEY = 'et-test-suppress-clean';
+  var LIMIT        = 3;
+  var n = 0;
+  try {
+    if (localStorage.getItem(SUPPRESS_KEY) === '1') {
+      localStorage.removeItem(SUPPRESS_KEY);
+    }
+    var prev = localStorage.getItem(CLEAN_KEY);
+    if (prev === '0') {
+      n = (parseInt(localStorage.getItem(COUNTER_KEY) || '0', 10) || 0) + 1;
+    } else {
+      n = 1;
+    }
+    localStorage.setItem(COUNTER_KEY, String(n));
+    localStorage.setItem(CLEAN_KEY, '0');
+  } catch (e) { return; }
+
+  if (n >= LIMIT) {
+    try { console.warn('[boot-watchdog] ' + n + ' bad boots; clearing SW + caches'); } catch (e) {}
+    (async function () {
+      try {
+        if ('serviceWorker' in navigator) {
+          var regs = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(regs.map(function (r) { return r.unregister(); }));
+        }
+        if ('caches' in window) {
+          var keys = await caches.keys();
+          await Promise.all(keys.map(function (k) { return caches.delete(k); }));
+        }
+        try { localStorage.setItem(COUNTER_KEY, '0'); } catch (e) {}
+        try { localStorage.setItem(CLEAN_KEY, '1'); } catch (e) {}
+        window.location.replace(window.location.pathname);
+      } catch (e) {
+        try { console.error('[boot-watchdog] recovery failed:', e); } catch (_) {}
+      }
+    })();
+    return;
+  }
+
+  function markClean() {
+    if (localStorage.getItem(SUPPRESS_KEY) === '1') return;
+    try { localStorage.setItem(CLEAN_KEY, '1'); } catch (e) {}
+  }
+  function markRunning() {
+    try { localStorage.setItem(CLEAN_KEY, '0'); } catch (e) {}
+  }
+  window.addEventListener('pagehide', markClean);
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible') markRunning();
+  });
+})();
+</script>
+<!-- SW update nudge + controllerchange listener. Inline because:
+     (a) iOS PWA's default 24h staleness threshold is too slow for our
+         deploy cadence — force an update check on every boot;
+     (b) a broken cached boot.js could otherwise prevent the user from
+         ever reaching a new version.
+     The safe-phase logic lives INLINE (not in boot.js) so there's a
+     single listener with no race window. boot.js previously also
+     attached a controllerchange listener, but only after register()
+     resolved — events firing in the gap were lost. -->
+<script>
+(function () {
+  if (!('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.getRegistration().then(function (reg) {
+    if (reg) reg.update().catch(function () {});
+  }).catch(function () {});
+
+  // Skip-once flag set by the upgrade-OK handler before its reload.
+  // The post-upgrade reload triggers an SW re-register (boot.js does
+  // it once caches are clean), and the freshly-registered SW fires
+  // controllerchange immediately as it claims the page — for content
+  // we're already running. Without this skip, the listener triggers
+  // another reload that loops the user back through Hello. Read AND
+  // CONSUME the flag here at script-load: keeps the in-memory copy
+  // live for the listener, but clears storage so a future session
+  // can't accidentally inherit it. (sessionStorage doesn't reliably
+  // clear on iOS PWA force-kill — any "consume only when used"
+  // approach would risk a stale-flag dead end.)
+  var skipNextControllerChange = false;
+  try {
+    if (sessionStorage.getItem('et-skip-next-cc') === '1') {
+      skipNextControllerChange = true;
+      sessionStorage.removeItem('et-skip-next-cc');
+    }
+  } catch (e) {}
+
+  // Safe to reload when the user isn't mid-tune. "Safe screens" = any
+  // overlay-driven screen (welcome / hello / info / settings / reset)
+  // or the StartScreen (start-btn visible). Resume / upgrade overlays
+  // are explicitly NOT safe — the user is about to interact with them.
+  function isSafeToReload() {
+    var safeOverlays = ['welcome-overlay', 'hello-overlay', 'info-overlay',
+                        'settings-overlay', 'reset-overlay'];
+    for (var i = 0; i < safeOverlays.length; i++) {
+      var el = document.getElementById(safeOverlays[i]);
+      if (el && el.classList.contains('open')) return true;
+    }
+    var blockOverlays = ['resume-overlay', 'upgrade-overlay'];
+    for (var j = 0; j < blockOverlays.length; j++) {
+      var bel = document.getElementById(blockOverlays[j]);
+      if (bel && bel.classList.contains('open')) return false;
+    }
+    var startBtn = document.getElementById('start-btn');
+    if (startBtn && startBtn.style.display !== 'none') return true;
+    return false;
+  }
+
+  var reloading = false;
+  var pollInterval = null;
+  function tryDeferredReload() {
+    // In-memory flag is sufficient — dies on actual reload. A
+    // sessionStorage guard was previously here too, but iOS Home-Screen
+    // PWAs don't reliably clear sessionStorage on force-kill, so once
+    // it got set to '1' by one successful update, all subsequent
+    // updates got their reload blocked indefinitely.
+    if (reloading) return;
+    if (!isSafeToReload()) return;
+    reloading = true;
+    if (pollInterval !== null) { clearInterval(pollInterval); pollInterval = null; }
+    window.location.reload();
+  }
+
+  navigator.serviceWorker.addEventListener('controllerchange', function () {
+    if (skipNextControllerChange) {
+      skipNextControllerChange = false;
+      return;
+    }
+    // Reload immediately if safe; else poll every 5s until safe.
+    tryDeferredReload();
+    if (pollInterval !== null) clearInterval(pollInterval);
+    pollInterval = setInterval(tryDeferredReload, 5000);
+  });
+})();
+</script>
+<!-- Version-coherence check. Compares the build stamped into this HTML
+     against the last build the user successfully launched (stored in
+     localStorage). If they differ AND last is non-null, sets
+     window._etUpgrade so the upgrade modal at the top of <body> shows.
+     The placeholder is built via string concatenation so the deploy.sh
+     sed pass on this file cannot match it as a contiguous substring —
+     a literal would turn this into "if current === <build>" and silently
+     suppress the modal on every clean deploy. -->
+<script>
+(function () {
+  // Skip the upgrade-comparison flow entirely on Capacitor. The
+  // mechanism (SW unregister + caches.delete) is a no-op there — no
+  // SW runs in the Cap webview, no Cache Storage to clean. Every
+  // `cap sync` also bumps BUILD_DATE, so a mismatch fires on every
+  // rebuild and the modal becomes pure dev-time friction. We still
+  // record et-last-build so that a hypothetical Cap→PWA migration
+  // wouldn't see a phantom upgrade on the first PWA launch.
+  // Detection inlined (window.Capacitor injected before any page
+  // script) since this runs before js/platform.js loads.
+  var isCap = !!(window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function'
+                 && window.Capacitor.isNativePlatform());
+  if (isCap) {
+    window._etUpgrade = null;
+    try {
+      var capMeta    = document.querySelector('meta[name="ear-tuner-build"]');
+      var capCurrent = (capMeta && capMeta.content) || null;
+      var capPh      = '%' + '%BUILD_DATE%' + '%';
+      if (capCurrent && capCurrent !== capPh) {
+        localStorage.setItem('et-last-build', capCurrent);
+      }
+      localStorage.setItem('et-boot-decision', JSON.stringify({
+        action: 'cap-skipped', ts: Date.now()
+      }));
+    } catch (e) {}
+    return;
+  }
+
+  var meta    = document.querySelector('meta[name="ear-tuner-build"]');
+  var current = (meta && meta.content) || null;
+  var PLACEHOLDER = '%' + '%BUILD_DATE%' + '%';
+  if (current === PLACEHOLDER) current = null;
+  var last = null;
+  try { last = localStorage.getItem('et-last-build'); } catch (e) {}
+  var action;
+  if (current && last && current !== last) {
+    window._etUpgrade = { from: last, to: current };
+    action = 'mismatch';
+  } else if (current && !last) {
+    window._etUpgrade = null;
+    try { localStorage.setItem('et-last-build', current); } catch (e) {}
+    action = 'first-seen';
+  } else if (current && last === current) {
+    window._etUpgrade = null;
+    action = 'same';
+  } else {
+    window._etUpgrade = null;
+    action = 'no-info';
+  }
+  try {
+    localStorage.setItem('et-boot-decision', JSON.stringify({
+      ts: Date.now(), last: last, current: current, action: action
+    }));
+  } catch (e) {}
+})();
+</script>
+<!-- Defense-in-depth upgrade detection + reusable modal-show.
+     The synchronous coherence check above only catches an upgrade once
+     the page has reloaded onto new HTML (meta would then differ from
+     last-seen). The intended trigger for that reload —
+     `controllerchange` after the new SW activates — can be silently
+     dropped on iOS Home-Screen PWAs when the page is suspended during
+     activation. The page then sits on stale HTML even though the SW's
+     static cache holds the new build.
+
+     This block compares the SW cache key directly against meta. When
+     they diverge it surfaces the standard upgrade modal — same OK-tap
+     cleanup-and-reload flow as the meta-vs-last-seen path, just driven
+     by a different signal. Runs at boot and on visibilitychange→visible
+     so a deploy that lands while the iPad is asleep is caught when the
+     user comes back. Idempotent — re-checks no-op if the modal is
+     already open or _etUpgrade is already set. -->
+<script>
+(function () {
+  // Skip on Capacitor — same rationale as the coherence check above.
+  if (window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function'
+      && window.Capacitor.isNativePlatform()) return;
+
+  // Reusable show. Idempotent. Defers if DOM isn't ready yet (cache
+  // check below can fire from <head> before the modal element exists).
+  window._etShowUpgradeModal = function (up) {
+    if (!up) return;
+    if (!document.body || !document.getElementById('upgrade-overlay')) {
+      document.addEventListener('DOMContentLoaded', function () {
+        window._etShowUpgradeModal(up);
+      }, { once: true });
+      return;
+    }
+    var ov  = document.getElementById('upgrade-overlay');
+    var btn = document.getElementById('upgrade-ok');
+    if (!ov || !btn) return;
+    if (ov.classList.contains('open')) return;
+    var ver = document.getElementById('upgrade-version');
+    if (ver) ver.textContent = up.to;
+    ov.classList.add('open');
+    // Disable OK for 1500ms so a ghost tap from launching the icon (a
+    // finger still hovering when the modal renders) cannot immediately
+    // dismiss it. Visible state: dimmed.
+    btn.disabled = true;
+    setTimeout(function () { btn.disabled = false; }, 1500);
+    btn.addEventListener('click', function () {
+      btn.disabled = true;
+      btn.textContent = 'Updating…';
+      // Persist the new build IMMEDIATELY — before any async cleanup
+      // that could hang. iOS PWA has been observed to hang on
+      // serviceWorker.unregister() / caches.delete() indefinitely;
+      // without this early write, a hang on the wipe leaves
+      // et-last-build stale and the modal re-fires on next launch.
+      try { localStorage.setItem('et-last-build', up.to); } catch (e) {}
+      // Tell the next page-load's controllerchange listener to ignore
+      // its first event — the post-reload re-register fires CC
+      // immediately as the fresh SW claims the page. Without the skip,
+      // that triggers another reload that loops the user back through
+      // Hello.
+      try { sessionStorage.setItem('et-skip-next-cc', '1'); } catch (e) {}
+      var doReload = function () { window.location.replace(window.location.pathname); };
+      var cleanup = Promise.resolve();
+      if ('serviceWorker' in navigator) {
+        cleanup = cleanup.then(function () {
+          return navigator.serviceWorker.getRegistrations().then(function (regs) {
+            return Promise.all(regs.map(function (r) { return r.unregister(); }));
+          });
+        }).catch(function () {});
+      }
+      if (window.caches) {
+        cleanup = cleanup.then(function () {
+          return caches.keys().then(function (keys) {
+            return Promise.all(keys.map(function (k) { return caches.delete(k); }));
+          });
+        }).catch(function () {});
+      }
+      var timeout = new Promise(function (resolve) { setTimeout(resolve, 3000); });
+      Promise.race([cleanup, timeout]).then(doReload, doReload);
+    });
+  };
+
+  function cacheCheck() {
+    if (!window.caches) return;
+    if (window._etUpgrade) return;  // already detected by coherence check
+    var meta = document.querySelector('meta[name="ear-tuner-build"]');
+    var metaVer = meta && meta.content;
+    var PH = '%' + '%BUILD_DATE%' + '%';
+    if (!metaVer || metaVer === PH) return;
+    caches.keys().then(function (keys) {
+      // During SW activate the GC pass can briefly leave two
+      // ear-tuner-static-* caches present. Take the lexicographic max
+      // (BUILD_DATE 'YYYY-MM-DD HH:mm' sorts correctly as a string) so
+      // we always compare against the newest cache, not whichever the
+      // implementation happens to enumerate first.
+      var newestVer = null;
+      for (var i = 0; i < keys.length; i++) {
+        if (keys[i].indexOf('ear-tuner-static-') !== 0) continue;
+        var v = keys[i].replace('ear-tuner-static-', '');
+        if (newestVer === null || v > newestVer) newestVer = v;
+      }
+      if (newestVer === null) return;
+      // Only fire on a forward upgrade. If cacheVer < metaVer (user
+      // cleared caches manually, or some other regression scenario),
+      // showing the modal would write the OLDER build to et-last-build
+      // on OK-tap and re-fire on every subsequent boot.
+      if (newestVer <= metaVer) return;
+      if (window._etUpgrade) return;  // race: coherence path got there first
+      window._etUpgrade = { from: metaVer, to: newestVer };
+      try {
+        localStorage.setItem('et-boot-decision', JSON.stringify({
+          ts: Date.now(), last: metaVer, current: newestVer,
+          action: 'cache-mismatch'
+        }));
+      } catch (e) {}
+      if (window._etShowUpgradeModal) {
+        window._etShowUpgradeModal(window._etUpgrade);
+      }
+    }).catch(function () {});
+  }
+  cacheCheck();
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible') cacheCheck();
+  });
+})();
+</script>
+<!-- Self-contained styles for the upgrade modal. Deliberately NOT using
+     design-tokens.css / style.css — those live in separate cached files
+     that may themselves be from a stale version when the upgrade modal
+     needs to display. Hardcoded colors so the modal renders correctly
+     even if every other resource on the page is broken or missing. -->
+<style>
+#upgrade-overlay {
+  position: fixed; inset: 0; z-index: 10000; display: none;
+  background: linear-gradient(180deg, #f1e8d4 0%, #e2d6ba 100%);
+  background-image: radial-gradient(ellipse at center, transparent 30%, rgba(0,0,0,0.10) 100%),
+                    linear-gradient(180deg, #f1e8d4 0%, #e2d6ba 100%);
+  flex-direction: column; align-items: center; justify-content: center;
+  padding: 32px 28px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  color: #2a2118; text-align: center;
+}
+#upgrade-overlay.open { display: flex; }
+#upgrade-title {
+  font-size: 28px; font-weight: 700;
+  margin: 0 0 22px; color: #1f1812;
+  letter-spacing: 0.3px;
+}
+#upgrade-msg { font-size: 17px; line-height: 1.5; margin: 0 0 6px; color: #4a3f33; }
+#upgrade-version {
+  display: block; margin: 4px 0 36px;
+  font-family: 'Inconsolata', ui-monospace, Menlo, Consolas, monospace;
+  font-size: 16px; color: #5a4a3a;
+}
+#upgrade-ok {
+  display: inline-block; padding: 14px 44px;
+  background: linear-gradient(180deg, #d77820 0%, #b56210 100%);
+  color: #fff; font-size: 17px; font-weight: 600;
+  border: none; border-radius: 14px;
+  -webkit-appearance: none; font-family: inherit; cursor: pointer;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.30),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.20),
+    0 3px 10px rgba(0, 0, 0, 0.18);
+}
+#upgrade-ok:active {
+  background: linear-gradient(180deg, #b56210 0%, #8c4a08 100%);
+  transform: translateY(1px);
+}
+#upgrade-ok:disabled {
+  background: linear-gradient(180deg, #c8b89a 0%, #a99880 100%);
+  cursor: default; transform: none;
+}
+</style>
+<title>Ear Tuner</title>
+<link rel="stylesheet" href="fonts/fonts.css">
+<link rel="stylesheet" href="design-tokens.css">
+<link rel="stylesheet" href="design-tokens-app.css">
+<link rel="stylesheet" href="glyph-disc.css">
+<link rel="stylesheet" href="resume-modal.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ── UPGRADE MODAL ──────────────────────────────────────────────
+     Shows when the version-coherence check in <head> detected a
+     mismatch between the HTML's stamped build and the last build
+     stored in localStorage. Self-contained: no external CSS or JS
+     deps, so it renders even if the rest of the page is from a
+     stale cache. Tap OK → unregister SW → clear all caches →
+     write new build to localStorage → reload. -->
+<div id="upgrade-overlay" role="dialog" aria-modal="true" aria-labelledby="upgrade-title">
+  <div id="upgrade-title">App Updated</div>
+  <p id="upgrade-msg">Ear Tuner has been upgraded to</p>
+  <code id="upgrade-version">—</code>
+  <button id="upgrade-ok" type="button">OK</button>
+</div>
+<script>
+// Show the modal if the synchronous coherence check in <head> already
+// detected an upgrade. The async cache-key path defined in <head> calls
+// _etShowUpgradeModal directly when it detects, so this body call only
+// matters for the meta-vs-last-seen path. _etShowUpgradeModal is
+// undefined on Capacitor (the IIFE early-returns there) — guard for it.
+if (window._etShowUpgradeModal) window._etShowUpgradeModal(window._etUpgrade);
+</script>
+
+<!-- SPRITE-INLINE -->
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+  <symbol id="icon-close-x" viewBox="0 0 34 34">
+    <circle cx="17" cy="17" r="15" stroke="currentColor" stroke-width="1.8" fill="none"/>
+      <path d="M11 11 L23 23 M23 11 L11 23" stroke="currentColor"
+            stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+  <symbol id="icon-gear" viewBox="0 0 100 100">
+    <path fill-rule="evenodd" clip-rule="evenodd" fill="currentColor"
+        d="M88 42h-5.8a33 33 0 0 0-3-7.2l4.1-4.1a4 4 0 0 0 0-5.6l-8.4-8.4a4 4 0 0 0-5.6 0l-4.1 4.1A33 33 0 0 0 58 17.8V12a4 4 0 0 0-4-4h-8a4 4 0 0 0-4 4v5.8a33 33 0 0 0-7.2 3l-4.1-4.1a4 4 0 0 0-5.6 0l-8.4 8.4a4 4 0 0 0 0 5.6l4.1 4.1A33 33 0 0 0 17.8 42H12a4 4 0 0 0-4 4v8a4 4 0 0 0 4 4h5.8a33 33 0 0 0 3 7.2l-4.1 4.1a4 4 0 0 0 0 5.6l8.4 8.4a4 4 0 0 0 5.6 0l4.1-4.1a33 33 0 0 0 7.2 3V88a4 4 0 0 0 4 4h8a4 4 0 0 0 4-4v-5.8a33 33 0 0 0 7.2-3l4.1 4.1a4 4 0 0 0 5.6 0l8.4-8.4a4 4 0 0 0 0-5.6l-4.1-4.1a33 33 0 0 0 3-7.2H88a4 4 0 0 0 4-4v-8a4 4 0 0 0-4-4z
+           M50 35a15 15 0 1 0 0 30 15 15 0 0 0 0-30z"/>
+      <circle cx="50" cy="50" r="10" fill="currentColor"/>
+  </symbol>
+  <symbol id="icon-glyph-check" viewBox="0 0 28 28">
+    <path d="M8 14 L12 18 L20 10"
+            stroke="#6fe882" stroke-width="2.5"
+            stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+  <symbol id="icon-glyph-x" viewBox="0 0 28 28">
+    <path d="M9 9 L19 19M19 9 L9 19"
+            stroke="#f07070" stroke-width="2.5"
+            stroke-linecap="round"/>
+  </symbol>
+  <symbol id="icon-info-i" viewBox="0 0 38 38">
+    <circle cx="19" cy="19" r="17" stroke="currentColor" stroke-width="1.8" fill="none"/>
+      <text x="19" y="26.5" text-anchor="middle" font-family="Georgia, serif"
+            font-size="21.6" font-style="italic" fill="currentColor">i</text>
+  </symbol>
+  <symbol id="icon-replay" viewBox="-10 25 1220 1220">
+    <path d="m529.2 441.6c-30-18-69.602 3.6016-69.602 39.602v318c0 36 38.398 57.602 69.602 39.602l262.8-158.4c28.801-18 28.801-60 0-78z" fill="currentColor"/>
+      <path d="m1053.6 362.4c-19.199-30-58.801-40.801-88.801-21.602-31.199 19.199-40.801 58.801-21.602 91.199 43.199 70.801 64.801 157.2 56.398 248.4-19.199 193.2-177.6 346.8-372 360-235.2 15.602-430.8-171.6-428.4-404.4 2.3984-216 178.8-393.6 393.6-397.2 12 0 22.801 0 34.801 1.1992v50.398c0 20.398 22.801 32.398 39.602 21.602l187.2-116.4c15.602-9.6016 15.602-33.602 0-43.199l-188.4-118.8c-16.801-10.801-39.602 1.1992-39.602 21.602v52.801c-8.3984-0.003906-16.797-0.003906-26.398-0.003906-306 0-553.2 260.4-529.2 571.2 19.199 260.4 229.2 470.4 488.4 489.6 310.8 22.801 572.4-223.2 572.4-529.2 0.003906-102-28.797-196.8-77.996-277.2z" fill="currentColor"/>
+  </symbol>
+</svg>
+<!-- /SPRITE-INLINE -->
+
+<div id="bg-fill"></div>
+
+<!-- ═══ MAIN APP ═══ -->
+
+<div id="app">
+  <div id="phase-label">Listen</div>
+
+  <!-- Diff label: two lines — value in Nunito above, "difference" in Inconsolata below -->
+
+  <div id="upper-half">
+    <div id="diff-label-wrap">
+      <div id="diff-value"></div>
+      <div id="diff-word">difference</div>
+    </div>
+  </div>
+
+  <!-- Note circles, vertically centered in the middle third -->
+
+  <div id="circles-zone">
+    <div style="margin-bottom:14px;flex-shrink:0;"></div>
+    <div id="note-row">
+      <div class="note-circle" id="note-left" onclick="handleTap('left')">
+        <div class="nc-name" id="note-left-name">?</div>
+        <div class="nc-detail" id="note-left-detail"></div>
+      </div>
+      <div class="note-circle" id="note-right" onclick="handleTap('right')">
+        <div class="nc-name" id="note-right-name">?</div>
+        <div class="nc-detail" id="note-right-detail"></div>
+      </div>
+    </div>
+    <!-- Replay button: center aligned with bottom of note circles -->
+    <button id="replay-btn" onclick="replayBoth()" aria-label="Replay" style="margin-top:0;">
+      <svg width="48" height="48" viewBox="-10 25 1220 1220" fill="none" style="color:rgba(255,255,255,0.75)">
+        <use href="#icon-replay"/>
+      </svg>
+    </button>
+    <!-- Start button shown before first round -->
+    <button id="start-btn" onclick="handleStart()">Start</button>
+  </div>
+
+  <!-- Controls below circles, stacked from top of lower third -->
+
+  <div id="lower-half">
+    <!-- Invisible tap area covering lower half — acts as retry, sits behind other buttons -->
+    <button id="tap-area" onclick="handleTapArea()"></button>
+    <div id="progress-row">
+    </div>
+
+    <div id="status-msg">Tap to begin</div>
+
+    <div id="round-actions">
+      <button class="round-action-btn" id="retry-action-btn" onclick="retryRound()">Retry</button>
+      <button class="round-action-btn" id="continue-action-btn" onclick="continueAfterFail()">Continue</button>
+      <button class="round-action-btn" id="back-action-btn" onclick="continueAfterFail()" style="display:none;">Back</button>
+    </div>
+  </div>
+</div>
+
+<!-- Swipe hint: fixed at bottom, above info/settings buttons -->
+
+<div id="swipe-hint" class="hint-text">Tap the higher note, or swipe up/down to indicate that the 2nd note is higher/lower.</div>
+
+<div id="toast"></div>
+
+<!-- Retest close button: shown top-right during retest mode -->
+
+<button id="retest-close-btn" onclick="closeRetest()" aria-label="Close retest">
+  <svg width="34" height="34" aria-hidden="true"><use href="#icon-close-x"/></svg>
+</button>
+
+<!-- Fixed corner buttons -->
+
+<button id="info-btn" aria-label="About" onclick="openInfo()">
+  <svg width="38" height="38" aria-hidden="true"><use href="#icon-info-i"/></svg>
+</button>
+<button id="settings-btn" aria-label="Settings" onclick="openSettings()">
+  <svg width="36" height="36" aria-hidden="true"><use href="#icon-gear"/></svg>
+</button>
+
+<!-- ═══ SETTINGS OVERLAY ═══ -->
+
+<div id="settings-overlay" class="overlay">
+  <button id="s-done-btn" onclick="closeSettings()" aria-label="Close settings">
+    <svg width="34" height="34" aria-hidden="true"><use href="#icon-close-x"/></svg>
+  </button>
+  <div id="settings-scroll">
+    <div id="settings-inner">
+      <div class="s-title-row"><span class="s-title">Settings</span></div>
+
+      <div class="s-sec">Note Sound</div>
+      <div id="sound-grid"></div>
+
+      <div class="s-row" id="s-volume-row">
+        <div>
+          <div class="s-label">Volume</div>
+          <div class="s-sub">Boost playback on quiet devices</div>
+        </div>
+        <div class="s-volume-control">
+          <input type="range" id="s-volume-slider" min="0" max="200" step="5" value="100"
+                 oninput="adjustVolume(this.value)" aria-label="Playback volume">
+          <div class="s-val" id="s-volume-val">100%</div>
+        </div>
+      </div>
+
+      <div class="s-sec">Note Range</div>
+      <div class="s-row">
+        <div><div class="s-label">Lowest Note</div><div class="s-sub">The lowest note that will be tested</div></div>
+        <div class="s-stepper">
+          <button class="step-btn" onclick="adjustSetting('lowestNote',-1)" aria-label="Decrease lowest note">−</button>
+          <div class="s-val" id="s-lowest">G3</div>
+          <button class="step-btn" onclick="adjustSetting('lowestNote',+1)" aria-label="Increase lowest note">+</button>
+        </div>
+      </div>
+      <div class="s-row">
+        <div><div class="s-label">Highest Note</div><div class="s-sub">The highest note that will be tested</div></div>
+        <div class="s-stepper">
+          <button class="step-btn" onclick="adjustSetting('highestNote',-1)" aria-label="Decrease highest note">−</button>
+          <div class="s-val" id="s-highest">D6</div>
+          <button class="step-btn" onclick="adjustSetting('highestNote',+1)" aria-label="Increase highest note">+</button>
+        </div>
+      </div>
+
+      <div class="s-sec">Difficulty</div>
+      <div class="s-row">
+        <div><div class="s-label">Starting Difference</div><div class="s-sub">The initial difference in notes</div></div>
+        <div class="s-stepper">
+          <!-- Reversed: + button = harder (fewer cents), − button = easier (more cents) -->
+          <button class="step-btn" onclick="adjustSetting('startCentsIdx',+1)" aria-label="Decrease starting difference (harder)">−</button>
+          <div class="s-val" id="s-start-cents">50¢</div>
+          <button class="step-btn" onclick="adjustSetting('startCentsIdx',-1)" aria-label="Increase starting difference (easier)">+</button>
+        </div>
+      </div>
+      <div class="s-row">
+        <div><div class="s-label">Tests per Round</div><div class="s-sub">Correct tests needed to advance</div></div>
+        <div class="s-stepper">
+          <button class="step-btn" onclick="adjustSetting('testsPerRound',-1)" aria-label="Decrease tests per round">−</button>
+          <div class="s-val" id="s-tests-per-round">3</div>
+          <button class="step-btn" onclick="adjustSetting('testsPerRound',+1)" aria-label="Increase tests per round">+</button>
+        </div>
+      </div>
+
+      <div class="s-sec">Note Length</div>
+      <div class="s-row">
+        <div><div class="s-label">Duration</div><div class="s-sub">Length of each note</div></div>
+        <div class="s-stepper">
+          <button class="step-btn" onclick="adjustSetting('noteDurIdx',-1)" aria-label="Decrease note duration">−</button>
+          <div class="s-val" id="s-note-dur">2.2s</div>
+          <button class="step-btn" onclick="adjustSetting('noteDurIdx',+1)" aria-label="Increase note duration">+</button>
+        </div>
+      </div>
+
+      <div class="s-sec">Tone Shape</div>
+      <div class="s-row">
+        <div><div class="s-label">Attack</div><div class="s-sub">How quickly the note rises</div></div>
+        <div class="s-stepper">
+          <button class="step-btn" onclick="adjustSetting('attack',-1)" aria-label="Decrease attack">−</button>
+          <div class="s-val" id="s-attack">Med</div>
+          <button class="step-btn" onclick="adjustSetting('attack',+1)" aria-label="Increase attack">+</button>
+        </div>
+      </div>
+      <div class="s-row">
+        <div><div class="s-label">Decay</div><div class="s-sub">How gradually the note fades</div></div>
+        <div class="s-stepper">
+          <button class="step-btn" onclick="adjustSetting('decay',-1)" aria-label="Decrease decay">−</button>
+          <div class="s-val" id="s-decay">Med</div>
+          <button class="step-btn" onclick="adjustSetting('decay',+1)" aria-label="Increase decay">+</button>
+        </div>
+      </div>
+
+      <div class="s-sec">Voice Control</div>
+      <div class="tog-row">
+        <div>
+          <div class="s-label">Listen for voice commands</div>
+          <div class="s-sub">Say "higher", "lower", "replay", "continue" (or "next"), "info", "settings", "close", or a note name like "C sharp four"</div>
+        </div>
+        <label class="tog-sw">
+          <input type="checkbox" id="s-voice-chk" onchange="onVoiceToggle(this.checked)">
+          <div class="tog-track"></div>
+          <div class="tog-thumb"></div>
+        </label>
+      </div>
+      <div class="tog-row" id="s-vc-keep-row" style="display:none;">
+        <div>
+          <div class="s-label">Keep last word on-screen</div>
+          <div class="s-sub">Hold the last recognized word until the next one (diagnostic)</div>
+        </div>
+        <label class="tog-sw">
+          <input type="checkbox" id="s-vc-keep" onchange="onVcKeepToggle(this.checked)">
+          <div class="tog-track"></div>
+          <div class="tog-thumb"></div>
+        </label>
+      </div>
+
+      <!-- Diagnostics section is hidden by default. Revealed by 7 taps in
+           the bottom tap zone (#s-debug-tap-zone). Persisted via the
+           'et-debug-revealed' localStorage key. -->
+      <div id="diagnostics-section" style="display:none;">
+        <div class="s-sec">Diagnostics</div>
+        <div class="s-row" id="s-vc-status-row" style="display:none;">
+          <div><div class="s-label">Voice Model</div><div class="s-sub" id="s-vc-status">Idle</div></div>
+        </div>
+        <div class="tog-row" id="s-limit-vr-row" style="display:none;">
+          <div>
+            <div class="s-label">Limit VR Vocabulary</div>
+            <div class="s-sub">Strict grammar — recognizer rejects words outside the command set</div>
+          </div>
+          <label class="tog-sw">
+            <input type="checkbox" id="s-limit-vr" onchange="onLimitVrToggle(this.checked)">
+            <div class="tog-track"></div>
+            <div class="tog-thumb"></div>
+          </label>
+        </div>
+        <div class="s-row">
+          <div><div class="s-label">Debug Log</div><div class="s-sub">Captures lifecycle events for crash diagnosis</div></div>
+          <div style="display:flex;gap:8px;">
+            <button id="s-copy-log-btn" class="log-action-btn" onclick="copyLog()">Copy</button>
+            <button class="log-action-btn" onclick="clearLog()">Clear</button>
+          </div>
+        </div>
+
+        <div class="s-row">
+          <div><div class="s-label">Welcome Screen</div><div class="s-sub">Reset to show on next launch</div></div>
+          <button id="welcome-reset-btn" class="log-action-btn" onclick="resetWelcome()">Reset</button>
+        </div>
+
+        <div class="s-row">
+          <div>
+            <div class="s-label">App Version</div>
+            <div class="s-sub" id="s-build-date"></div>
+            <div class="s-sub" id="s-sw-status" style="margin-top:1px; white-space: pre-line;"></div>
+          </div>
+          <button class="log-action-btn" onclick="reloadFromServer()">Reload</button>
+        </div>
+
+        <div class="s-row">
+          <div style="flex:1;"><div class="s-label">Memory</div><div class="s-sub" id="s-mem-status">—</div></div>
+          <button id="s-mem-refresh" class="log-action-btn">Refresh</button>
+        </div>
+
+        <div class="s-row">
+          <div><div class="s-label">Randomize Scores</div><div class="s-sub">Fill stats with fake history for testing</div></div>
+          <button class="log-action-btn" onclick="confirmRandomizeScores()">Randomize</button>
+        </div>
+
+        <div class="s-row" style="flex-direction:column; align-items:stretch; gap:6px; padding: 8px 0;">
+          <div class="s-label">Hard reset</div>
+          <div class="s-sub" style="line-height: 1.5;">
+            Wipes ALL local data — settings, log, voice cache, service worker. Requires internet on next launch. Use only if Reload doesn't help (fonts broken, version blank, app behaving strangely).
+          </div>
+          <button id="s-hard-reset-btn" class="log-action-btn" style="background: rgba(220,80,80,0.18); color: rgba(255,200,200,0.95);">Hard reset</button>
+        </div>
+      </div>
+
+      <!-- Bottom tap zone for the secret 7-tap debug-reveal. Wraps the
+           Reset button and the always-visible build-date footer; the
+           click counter listens on this whole region. -->
+      <div id="s-debug-tap-zone">
+        <button id="s-reset-btn" onclick="openResetDefaults()">Reset to defaults…</button>
+        <div class="s-build-date-footer" id="settings-build-date"></div>
+      </div>
+      <div style="height:28px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Reset defaults overlay -->
+
+<div id="reset-overlay">
+  <div id="reset-box">
+    <div id="reset-title-r">Reset to defaults</div>
+    <div id="reset-msg-r">Reset all settings to their default values?</div>
+    <div id="reset-btns-r">
+      <button id="reset-yes-r" onclick="confirmResetDefaults()">Yes, reset settings</button>
+      <button id="reset-cancel-r" onclick="closeResetDefaults()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ WELCOME OVERLAY ═══ -->
+
+<div id="welcome-overlay" class="overlay">
+  <div id="welcome-content">
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:4px;">
+      <img id="welcome-app-icon" src="resources/app-icon-180.png" width="60" height="60" style="border-radius:13px;flex-shrink:0;" alt="Ear Tuner icon"/>
+      <div>
+        <div class="info-heading">Ear Tuner</div>
+        <div class="info-subheading">because intonation matters</div>
+      </div>
+    </div>
+    <p class="info-p">Welcome to <strong>Ear Tuner</strong>... a game with no end, because your ear could always be   better.</p>
+    <p class="info-p"><strong>Ear Tuner</strong> plays two notes. Tap the one you think is higher.</p>
+    <p class="info-p">The app quickly finds your threshold — the point where two notes are so close together you can barely tell them apart — and keeps testing you at your limits.</p>
+    <p class="info-p">Research shows that this kind of targeted practice, done regularly, improves your ability to hear small pitch differences.</p>
+    <p class="info-p">Tap <button class="welcome-inline-btn" onclick="openInfo()" aria-label="Info"><svg width="22" height="22" aria-hidden="true"><use href="#icon-info-i"/></svg></button> (lower right) to see your overall score and learn the "swipe" gestures that let you play Ear Tuner while driving or sitting in a recliner with your eyes closed.</p>
+    <p class="info-p">Tap <button class="welcome-inline-btn" onclick="openSettings()" aria-label="Settings"><svg width="20" height="20" aria-hidden="true"><use href="#icon-gear"/></svg></button> (lower left) to change the instrument or adjust other settings.</p>
+    <div class="welcome-push"></div>
+    <button id="welcome-get-started" onclick="closeWelcome()">Get Started</button>
+    <div class="welcome-push"></div>
+    <div class="launch-build-date" id="welcome-build-date"></div>
+  </div>
+</div>
+
+<!-- ═══ HELLO OVERLAY — daily VR opt-in (only shown when settings.voiceCommands is on) ═══ -->
+
+<div id="hello-overlay" class="overlay">
+  <div id="hello-content" class="welcome-content-shape">
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:4px;">
+      <img src="resources/app-icon-180.png" width="60" height="60" style="border-radius:13px;flex-shrink:0;" alt="Ear Tuner icon"/>
+      <div>
+        <div class="info-heading">Hello!</div>
+        <div class="info-subheading">Ready to tune up your ears?</div>
+      </div>
+    </div>
+    <p class="info-p">You can use voice commands to operate Ear&#8209;Tuner while driving, knitting, or juggling. It drains your battery a bit faster, so you might not want to use it every time.</p>
+    <p class="info-p">You can say <strong>"higher"</strong> or <strong>"lower"</strong> to indicate that the second note is higher/lower, and <strong>"replay"</strong> to hear the notes again.</p>
+    <p class="info-p">Say <strong>"settings"</strong> or <strong>"info"</strong> to go to those screens.</p>
+    <p class="info-p">On the info screen, say <strong>"retest C sharp four"</strong> to retest that note.</p>
+    <p class="info-p"><strong>"Continue"</strong>, <strong>"retry"</strong>, and <strong>"close"</strong> work in the appropriate places.</p>
+    <div class="welcome-push"></div>
+    <div style="display:flex;gap:14px;justify-content:center;width:100%;">
+      <button id="hello-yes-btn" onclick="onHelloYes()" style="flex:1;">Yes, use voice</button>
+      <button id="hello-no-btn"  onclick="onHelloNo()"  style="flex:1;">No, not today</button>
+    </div>
+    <p class="info-p" style="font-size:0.85em;opacity:0.72;font-style:italic;margin-top:14px;">In a car (or wherever connected to Bluetooth audio) with voice control, sound will come through your phone. Without, it will come through the Bluetooth speakers. This is a limitation of web apps.</p>
+    <div class="welcome-push"></div>
+    <div class="launch-build-date" id="hello-build-date"></div>
+  </div>
+</div>
+
+<!-- RESUME SCREEN — modal dialog over current screen on visibility-restore.
+     Per Apple, restarting the microphone after a backgrounding requires a
+     fresh user gesture; this overlay makes that explicit instead of
+     silently waiting for the user to tap something. Styles live in the
+     shared resume-modal.css (synced from _shared/design/). -->
+<div id="resume-overlay">
+  <div id="resume-box">
+    <div id="resume-title">Welcome back</div>
+    <p id="resume-msg">We lost our audio while you were away. Click resume to restore it.</p>
+    <button id="resume-btn-action" onclick="closeResume()">Resume</button>
+  </div>
+</div>
+
+<!-- ═══ INFO OVERLAY ═══ -->
+
+<div id="info-overlay" class="overlay">
+  <button id="info-close-btn" onclick="closeInfo()" aria-label="Close info">
+    <svg width="34" height="34" aria-hidden="true"><use href="#icon-close-x"/></svg>
+  </button>
+  <div id="info-content">
+    <!-- App icon + name header -->
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:4px;">
+      <img id="info-app-icon" src="resources/app-icon-180.png" width="60" height="60" style="border-radius:13px;flex-shrink:0;" alt="Ear Tuner icon"/>
+      <div>
+        <div class="info-heading">Ear Tuner</div>
+        <div class="info-subheading">because intonation matters</div>
+      </div>
+    </div>
+    <p id="info-inspiration" class="info-p">
+      <strong>Ear Tuner</strong> measures your aural acuity (your ability to tell which of two notes is slightly higher or lower) and helps you improve it. The app tests you with notes that are closer and closer together, until you can no longer reliably tell which is higher.
+    </p>
+    <div id="info-more-wrap">
+      <button id="info-more-btn" onclick="toggleInfoMore()">... more</button>
+      <div id="info-more-content">
+        <p class="info-p">
+          The app remembers your best score for every note. Once you have a score for every note, it randomly selects notes to re-test, favoring notes where your score is weakest. You can manually re-test a specific note in the <strong>Scores</strong> table, below.
+        </p>
+        <p class="info-p">
+          By practicing regularly, your aural acuity will improve.
+        </p>
+        <p class="info-p">
+          <strong>Ear Tuner</strong> supports voice commands. Say <strong>"higher"</strong> or <strong>"lower"</strong> to indicate that the second note is higher/lower, and <strong>"replay"</strong> to hear the notes again. Say <strong>"settings"</strong> or <strong>"info"</strong> to go to those screens. In the <strong>"info"</strong> screen, say <strong>"retest C sharp four"</strong> to retest that note. <strong>"Continue"</strong>, <strong>"retry"</strong>, and <strong>"close"</strong> work in the appropriate places.
+        </p>
+        <p class="info-p">
+          <strong>Ear Tuner</strong> also supports "eyes-free" operation, even without voice commands: tap anywhere in the lower part of the screen to replay. Swipe right to continue after a wrong answer. In retest mode, swipe left to retry. Use the app with your eyes closed ("intonation meditation").
+        </p>
+        <p class="info-p">
+          The minimum difference that a person requires to distinguish between two notes varies. An untrained person may need 10–20 cents. An average musician might need 5–6 cents. A top-notch fretless string player may only need 2–3 cents.
+        </p>
+        <p class="info-p">
+          <strong>Ear Tuner</strong> was inspired by the <strong><a href="https://halfnotelabs.com/how-to-improve-tuning" target="_blank" style="color:#7a2900;text-decoration:underline;text-underline-offset:3px;">InTune</a></strong> app and <strong><a href="https://www.mollygebrian.com/" target="_blank" style="color:#7a2900;text-decoration:underline;text-underline-offset:3px;">Molly Gebrian</a>'s</strong> tips for improving intonation.
+        </p>
+        <p class="info-p">
+          If you have feedback, email <a id="feedback-email" style="color:#7a2900;text-decoration:underline;text-underline-offset:3px;"></a>.
+        </p>
+      </div>
+    </div>
+    <div class="info-sec">Average Score</div>
+    <div id="overall-score" style="font-size:clamp(28px,8vw,40px);font-weight:600;letter-spacing:-0.01em;color:#7a2900;text-align:center;padding:8px 0 4px;">—</div>
+
+    <div class="info-sec">Score Chart</div>
+    <div id="stats-chart-wrap"><canvas id="stats-chart"></canvas></div>
+
+    <div class="info-sec">Scores</div>
+    <table id="stats-table">
+      <colgroup><col><col><col></colgroup>
+      <thead><tr><th>Note</th><th>Best</th><th></th></tr></thead>
+      <tbody id="stats-tbody"></tbody>
+    </table>
+    <p class="info-p" style="font-size:0.85em;opacity:0.65;font-style:italic;margin-top:-4px;">
+      Highlighted bars/rows &mdash; last test failed at a difference at which you once succeeded.
+    </p>
+    <div id="info-copy-row">
+      <button id="info-copy-scores-btn" onclick="copyScores()">Copy Scores</button>
+      <button id="info-import-scores" onclick="openImportScores()">Import Scores</button>
+      <span id="info-copy-label">Paste into an email to share with a friend.</span>
+    </div>
+    <hr class="info-divider">
+
+    <div id="info-destructive-row">
+      <button id="info-global-reset" onclick="confirmResetAll()">Reset All Scores</button>
+    </div>
+
+    <p style="font-family:var(--font-info);font-size:var(--font-info-subheading);color:rgba(0,0,0,0.40);line-height:1.6;margin-top:4px;">
+      Instrument samples from the <a href="https://github.com/gleitz/midi-js-soundfonts" target="_blank" style="color:rgba(0,0,0,0.50);">MusyngKite soundfont</a>, used under <a href="https://creativecommons.org/licenses/by-sa/3.0/" target="_blank" style="color:rgba(0,0,0,0.50);">CC BY-SA 3.0</a>.
+    </p>
+    <button id="info-close-btn-bottom" onclick="closeInfo()" aria-label="Close info">
+      <svg width="34" height="34" aria-hidden="true"><use href="#icon-close-x"/></svg>
+    </button>
+    <div id="build-date-display" style="font-size:11px;color:rgba(0,0,0,0.25);letter-spacing:0.04em;text-align:center;margin-top:8px;font-family:monospace;"></div>
+  </div>
+</div>
+
+<!-- ═══ VOICE TRANSCRIPT + LOADER ═══ -->
+
+<div id="vc-transcript" aria-live="polite"></div>
+<div id="vc-loader" hidden>Loading voice assets…</div>
+
+<!-- ═══ CONFIRM ═══ -->
+
+<div id="confirm-overlay">
+  <div id="confirm-box">
+    <div id="confirm-title"></div>
+    <div id="confirm-msg"></div>
+    <div id="confirm-btns">
+      <button id="confirm-yes">Yes, Reset</button>
+      <button id="confirm-no" onclick="closeConfirm()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ IMPORT SCORES ═══ -->
+
+<div id="import-overlay">
+  <div id="import-box">
+    <div id="import-title">Import Scores</div>
+    <div id="import-msg">Paste the scores you copied with "Copy Scores" below.</div>
+    <textarea id="import-textarea" placeholder="Paste copied scores here..." spellcheck="false" autocomplete="off"></textarea>
+    <div id="import-status"></div>
+    <div id="import-btns">
+      <button id="import-confirm" onclick="confirmImportScores()">Import</button>
+      <button id="import-cancel" onclick="closeImportScores()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+
+<script src="soundfont-player.min.js"></script>
+<script src="js/platform.js"></script>
+<script src="js/constants.js"></script>
+<script src="js/persistence.js"></script>
+<!-- Diag-log prefix MUST be set before diag-log.js loads — keys all
+     LS storage and the boot-watchdog helpers. Matches the hardcoded
+     'et-' prefix in the inline boot-watchdog at the top of <head>. -->
+<script>window.__DIAG_LOG_PREFIX__ = 'et';</script>
+<script src="js/diag-log.js"></script>
+<script src="js/audio-ctx.js"></script>
+<script src="js/mic.js"></script>
+<script src="js/wakelock.js"></script>
+<script src="js/chime-success.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/game.js"></script>
+<script src="js/safe-area.js"></script>
+<script src="js/render.js"></script>
+<script src="js/context-dispatch.js"></script>
+<script src="js/ui.js"></script>
+<!-- vosk-browser.js (5.5 MB UMD) is lazy-loaded by voice.js's loadVoskScript()
+     on first opt-in (Hello → Yes). Eager-loading on boot would crash the
+     iPhone PWA before the welcome overlay rendered. -->
+<script src="js/voice-commands.js"></script>
+<script src="js/voice.js"></script>
+<script src="js/register-sw.js"></script>
+<script src="js/boot.js"></script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+# Local dev only — fonts are copied from _shared/design/fonts/ at deploy time.
+# Run: cp -r ../_shared/design/fonts/ fonts/
+fonts/
+node_modules/
+dist/
