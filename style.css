@@ -568,6 +568,15 @@ border: 1.5px solid rgba(0,0,0,0.15); background: rgba(0,0,0,0.06); color: rgba(
 transition: background 0.15s;
 }
 #info-global-reset:active { background: rgba(0,0,0,0.12); }
+#info-tip-row { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; padding: 2px 0; }
+.info-tip-label { font-family: var(--font-info); font-size: var(--font-info-body); font-weight: 300; color: rgba(0,0,0,0.55); margin: 0; }
+#tip-btn {
+display: inline-block; font-family: var(--font); font-size: clamp(13px, 3.5vw, 15px);
+padding: 10px 24px; border-radius: 999px; cursor: pointer; text-decoration: none;
+border: 1.5px solid rgba(122,41,0,0.35); background: rgba(122,41,0,0.07); color: var(--color-orange-2);
+transition: background 0.15s; letter-spacing: 0.01em;
+}
+#tip-btn:active { background: rgba(122,41,0,0.18); }
 
 /* Import Scores overlay */
 #import-overlay {

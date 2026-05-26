@@ -11,8 +11,8 @@
 <meta name="theme-color" id="meta-theme" content="#b83c08">
 <!-- Stamped by scripts/deploy.sh — used by the inline version-coherence
      check below to detect a hybrid-cache state at launch. Source ships
-     with 2026-05-26 11:07 as the literal placeholder. -->
-<meta name="ear-tuner-build" content="2026-05-26 11:07">
+     with 2026-05-26 12:15 as the literal placeholder. -->
+<meta name="ear-tuner-build" content="2026-05-26 12:15">
 <!-- PWA home-screen icon. MUST be a real PNG file reference — iOS Safari
      "Add to Home Screen" does not reliably accept data: URLs or JS-generated
      canvas icons. If you change this, test on iPad Safari: Share → Add to
@@ -886,6 +886,14 @@ if (window._etShowUpgradeModal) window._etShowUpgradeModal(window._etUpgrade);
     <p style="font-family:var(--font-info);font-size:var(--font-info-subheading);color:rgba(0,0,0,0.40);line-height:1.6;margin-top:4px;">
       Instrument samples from the <a href="https://github.com/gleitz/midi-js-soundfonts" target="_blank" style="color:rgba(0,0,0,0.50);">MusyngKite soundfont</a>, used under <a href="https://creativecommons.org/licenses/by-sa/3.0/" target="_blank" style="color:rgba(0,0,0,0.50);">CC BY-SA 3.0</a>.
     </p>
+    <hr class="info-divider">
+    <div id="info-tip-row">
+      <p class="info-tip-label">Enjoying Ear Tuner? Leave me a tip!</p>
+      <!-- href: create a Payment Link in Stripe Dashboard and paste the URL here. -->
+      <!-- Test key: pk_test_51TbMhAHTSt8j8gdxjCetp7qYosnlrv9pAspiMroINZFgsiT84eoaCSjcfdaTttvqbySY8DICcT23OrOAiJXMcyyC00M79aYXXC -->
+      <a id="tip-btn" href="https://donate.stripe.com/6oU4gz0RR56j9pwauG4ow00" target="_blank" rel="noopener noreferrer">&#x2665;&#xFE0E;&thinsp;Leave Casey a tip</a>
+    </div>
+
     <button id="info-close-btn-bottom" onclick="closeInfo()" aria-label="Close info">
       <svg width="34" height="34" aria-hidden="true"><use href="#icon-close-x"/></svg>
     </button>
