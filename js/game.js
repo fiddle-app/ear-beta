@@ -34,10 +34,7 @@ stats[noteName].attempts = (stats[noteName].attempts || 0) + 1;
 // ══════════════════════════════════════════════════════
 function noteDur() { return DUR_STEPS[settings.noteDurIdx]; }
 
-// keepCents=true skips the per-note centsIdx reset. Used by the
-// post-success path so the user keeps moving to a smaller difference
-// even after rotating to a new note.
-function startRound(keepCents = false) {
+function startRound() {
 awaiting=false; roundFailed=false;
 roundAttempts=0; roundResults=[];
 $('round-actions').style.display='none'; hideRetestEndActions();
@@ -47,9 +44,9 @@ const prevNote = currentNote;
 const note = pickNote(); currentNote=note;
 markAttempt(note.name);
 saveStats();
-logEvent(`startRound | note=${note.name} | cents=${fmtC(CENTS_SEQ[centsIdx])} | retest=${retestNote||'none'}${keepCents ? ' | keepCents' : ''}`);
+logEvent(`startRound | note=${note.name} | cents=${fmtC(CENTS_SEQ[centsIdx])} | retest=${retestNote||'none'}`);
 
-if (!retestNote && !keepCents) {
+if (!retestNote) {
   const bestCents = stats[note.name]?.bestCents;
   if (bestCents != null) {
     let idx = CENTS_SEQ.findIndex(c => c <= bestCents);
@@ -252,9 +249,6 @@ if (roundResults.length===settings.testsPerRound && roundResults.every(x=>x==='c
   setTimeout(() => chimeSuccess(audioCtx, audioOut()), 150);
   setTimeout(smileProgressRow, 250);
   const key = currentNote.name;
-  // Capture BEFORE we write the new bestCents below — drives the
-  // post-success rotate-or-stay decision in the !retestNote branch.
-  const hadBestBefore = stats[key]?.bestCents != null;
   if (!stats[key]) stats[key]={};
   if (stats[key].bestCents==null || cents < stats[key].bestCents) {
     stats[key].bestCents = cents;
@@ -284,18 +278,9 @@ if (roundResults.length===settings.testsPerRound && roundResults.every(x=>x==='c
     } else {
       $('status-msg').textContent='Master level!';
     }
-    // hadBestBefore: this note already had a baseline coming in, so
-    // stay on it and drill toward a finer best. !hadBestBefore: first
-    // successful pass on a new note — record the baseline and rotate
-    // to a fresh semi-random note so coverage expands across the range.
     setTimeout(()=>{
-      if (hadBestBefore) {
-        clearProgress(); roundResults=[]; roundAttempts=0;
-        $('diff-value').textContent = fmtC(CENTS_SEQ[centsIdx]);
-        setupAttempt();
-      } else {
-        startRound(true);
-      }
+      $('diff-value').textContent = fmtC(CENTS_SEQ[centsIdx]);
+      clearProgress(); roundResults=[]; roundAttempts=0; setupAttempt();
     }, 3200);
   }
   return;
