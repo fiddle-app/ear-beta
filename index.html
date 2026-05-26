@@ -11,8 +11,8 @@
 <meta name="theme-color" id="meta-theme" content="#b83c08">
 <!-- Stamped by scripts/deploy.sh — used by the inline version-coherence
      check below to detect a hybrid-cache state at launch. Source ships
-     with 2026-05-26 12:15 as the literal placeholder. -->
-<meta name="ear-tuner-build" content="2026-05-26 12:15">
+     with 2026-05-26 13:05 as the literal placeholder. -->
+<meta name="ear-tuner-build" content="2026-05-26 13:05">
 <!-- PWA home-screen icon. MUST be a real PNG file reference — iOS Safari
      "Add to Home Screen" does not reliably accept data: URLs or JS-generated
      canvas icons. If you change this, test on iPad Safari: Share → Add to
@@ -878,6 +878,11 @@ if (window._etShowUpgradeModal) window._etShowUpgradeModal(window._etUpgrade);
       <span id="info-copy-label">Paste into an email to share with a friend.</span>
     </div>
     <hr class="info-divider">
+    <div id="info-tip-row">
+      <p class="info-tip-label">Enjoying Ear Tuner? Leave me a tip!</p>
+      <button id="tip-btn" onclick="openTipModal()"><span class="tip-icon">☕</span>&thinsp;Leave Casey a tip</button>
+    </div>
+    <hr class="info-divider">
 
     <div id="info-destructive-row">
       <button id="info-global-reset" onclick="confirmResetAll()">Reset All Scores</button>
@@ -886,14 +891,6 @@ if (window._etShowUpgradeModal) window._etShowUpgradeModal(window._etUpgrade);
     <p style="font-family:var(--font-info);font-size:var(--font-info-subheading);color:rgba(0,0,0,0.40);line-height:1.6;margin-top:4px;">
       Instrument samples from the <a href="https://github.com/gleitz/midi-js-soundfonts" target="_blank" style="color:rgba(0,0,0,0.50);">MusyngKite soundfont</a>, used under <a href="https://creativecommons.org/licenses/by-sa/3.0/" target="_blank" style="color:rgba(0,0,0,0.50);">CC BY-SA 3.0</a>.
     </p>
-    <hr class="info-divider">
-    <div id="info-tip-row">
-      <p class="info-tip-label">Enjoying Ear Tuner? Leave me a tip!</p>
-      <!-- href: create a Payment Link in Stripe Dashboard and paste the URL here. -->
-      <!-- Test key: pk_test_51TbMhAHTSt8j8gdxjCetp7qYosnlrv9pAspiMroINZFgsiT84eoaCSjcfdaTttvqbySY8DICcT23OrOAiJXMcyyC00M79aYXXC -->
-      <a id="tip-btn" href="https://donate.stripe.com/6oU4gz0RR56j9pwauG4ow00" target="_blank" rel="noopener noreferrer">&#x2665;&#xFE0E;&thinsp;Leave Casey a tip</a>
-    </div>
-
     <button id="info-close-btn-bottom" onclick="closeInfo()" aria-label="Close info">
       <svg width="34" height="34" aria-hidden="true"><use href="#icon-close-x"/></svg>
     </button>
@@ -935,6 +932,23 @@ if (window._etShowUpgradeModal) window._etShowUpgradeModal(window._etUpgrade);
 </div>
 
 
+<!-- ═══ TIP MODAL ═══ -->
+
+<div id="tip-modal" role="dialog" aria-modal="true" aria-labelledby="tip-modal-msg">
+  <div id="tip-modal-box">
+    <p id="tip-modal-msg">Stripe payments requires an email address. If you don't want to supply yours, check the checkbox and I'll fill in an email that just goes to me. If you do give me your email, I will NEVER give or sell it to anyone, but I might email you when there is a new app that you might like.</p>
+    <label id="tip-checkbox-label">
+      <input type="checkbox" id="tip-anon-check" onchange="handleTipCheckbox()">
+      I'd rather not provide my email
+    </label>
+    <input type="email" id="tip-email-input" placeholder="your@email.com" autocomplete="email">
+    <div id="tip-modal-btns">
+      <button id="tip-go-btn" onclick="submitTip()">Continue to payment &#x2192;</button>
+      <button id="tip-cancel-btn" onclick="closeTipModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <script src="soundfont-player.min.js"></script>
 <script src="js/platform.js"></script>
 <script src="js/constants.js"></script>
@@ -954,6 +968,7 @@ if (window._etShowUpgradeModal) window._etShowUpgradeModal(window._etUpgrade);
 <script src="js/render.js"></script>
 <script src="js/context-dispatch.js"></script>
 <script src="js/ui.js"></script>
+<script src="js/tip.js"></script>
 <!-- vosk-browser.js (5.5 MB UMD) is lazy-loaded by voice.js's loadVoskScript()
      on first opt-in (Hello → Yes). Eager-loading on boot would crash the
      iPhone PWA before the welcome overlay rendered. -->
