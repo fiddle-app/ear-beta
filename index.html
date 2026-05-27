@@ -11,8 +11,8 @@
 <meta name="theme-color" id="meta-theme" content="#b83c08">
 <!-- Stamped by scripts/deploy.sh — used by the inline version-coherence
      check below to detect a hybrid-cache state at launch. Source ships
-     with 2026-05-26 13:05 as the literal placeholder. -->
-<meta name="ear-tuner-build" content="2026-05-26 13:05">
+     with 2026-05-27 14:20 as the literal placeholder. -->
+<meta name="ear-tuner-build" content="2026-05-27 14:20">
 <!-- PWA home-screen icon. MUST be a real PNG file reference — iOS Safari
      "Add to Home Screen" does not reliably accept data: URLs or JS-generated
      canvas icons. If you change this, test on iPad Safari: Share → Add to
@@ -936,14 +936,13 @@ if (window._etShowUpgradeModal) window._etShowUpgradeModal(window._etUpgrade);
 
 <div id="tip-modal" role="dialog" aria-modal="true" aria-labelledby="tip-modal-msg">
   <div id="tip-modal-box">
-    <p id="tip-modal-msg">Stripe payments requires an email address. If you don't want to supply yours, check the checkbox and I'll fill in an email that just goes to me. If you do give me your email, I will NEVER give or sell it to anyone, but I might email you when there is a new app that you might like.</p>
+    <p id="tip-modal-msg">Stripe payments requires an email address. By default I'll fill in one that just goes to me — Stripe won't ask you for yours. If you'd like a receipt, or if you'd like me to let you know when there's a new app you might like, uncheck the box below and Stripe will ask for your email. I will NEVER give or sell it to anyone.</p>
     <label id="tip-checkbox-label">
-      <input type="checkbox" id="tip-anon-check" onchange="handleTipCheckbox()">
+      <input type="checkbox" id="tip-anon-check" checked>
       I'd rather not provide my email
     </label>
-    <input type="email" id="tip-email-input" placeholder="your@email.com" autocomplete="email">
     <div id="tip-modal-btns">
-      <button id="tip-go-btn" onclick="submitTip()">Continue to payment &#x2192;</button>
+      <button id="tip-go-btn" onclick="submitTip()">Continue to tip jar &#x2192;</button>
       <button id="tip-cancel-btn" onclick="closeTipModal()">Cancel</button>
     </div>
   </div>

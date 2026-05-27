@@ -9,6 +9,14 @@ return st && st.bestCents != null && st.lastFailureCents != null && st.lastFailu
 function pickNote() {
 if (retestNote) return ALL_NOTES.find(n=>n.name===retestNote);
 
+// No scores yet (new user or post-reset) → start on A4 if it's in range,
+// otherwise fall through to the normal random pick below.
+if (Object.keys(stats).length === 0) {
+  const pool = ALL_NOTES.slice(settings.lowestNote, settings.highestNote+1);
+  const a4   = pool.find(n => n.name === 'A4');
+  if (a4) return a4;
+}
+
 const pool = ALL_NOTES.slice(settings.lowestNote, settings.highestNote+1);
 const untested = pool.filter(n => !stats[n.name] || stats[n.name].attempts == null || stats[n.name].attempts === 0);
 if (untested.length > 0) {
