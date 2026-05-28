@@ -17,6 +17,10 @@
   --color-danger:      #c0392b;   /* danger surface (destructive button bg, danger-modal primary) */
   --color-danger-text: #ff9999;   /* danger foreground (light red text/border on dark surfaces — stale-override badges, error inlines) */
 
+  /* Modal/dialog backdrop scrims (sit behind elevated dialog boxes) */
+  --color-backdrop-heavy:  rgba(0, 0, 0, 0.72);  /* primary dialog scrim (#tl-dialog-root and friends) */
+  --color-backdrop-medium: rgba(0, 0, 0, 0.65);  /* lighter scrim (BDS dialog, sync-setup overlay) */
+
   /* Dark-mode surfaces */
   --color-bg-dark:           #0d0d0d;   /* base body bg / ready-phase edge */
   --color-bg-surface:        #1e1e1e;   /* primary dark surface */

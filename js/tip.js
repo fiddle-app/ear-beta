@@ -6,7 +6,7 @@ const TIP_URL            = 'https://donate.stripe.com/6oU4gz0RR56j9pwauG4ow00';
 const TIP_FALLBACK_EMAIL = 'caseymullen63+EarTipper@gmail.com';
 
 function openTipModal() {
-  $('tip-anon-check').checked = true;   // default: anonymous (use fallback email)
+  $('tip-anon-check').checked = false;  // default: let Stripe collect their email
   $('tip-modal').classList.add('open');
 }
 
