@@ -11,8 +11,8 @@
 <meta name="theme-color" id="meta-theme" content="#b83c08">
 <!-- Stamped by scripts/deploy.sh — used by the inline version-coherence
      check below to detect a hybrid-cache state at launch. Source ships
-     with 2026-05-28 16:53 as the literal placeholder. -->
-<meta name="ear-tuner-build" content="2026-05-28 16:53">
+     with 2026-05-28 17:15 as the literal placeholder. -->
+<meta name="ear-tuner-build" content="2026-05-28 17:15">
 <!-- PWA home-screen icon. MUST be a real PNG file reference — iOS Safari
      "Add to Home Screen" does not reliably accept data: URLs or JS-generated
      canvas icons. If you change this, test on iPad Safari: Share → Add to
@@ -880,7 +880,7 @@ if (window._etShowUpgradeModal) window._etShowUpgradeModal(window._etUpgrade);
     <hr class="info-divider">
     <div id="info-tip-row">
       <p class="info-tip-label">Enjoying Ear Tuner? Leave me a tip!</p>
-      <button id="tip-btn" onclick="openTipModal()"><span class="tip-icon">☕</span>&thinsp;Leave Casey a tip</button>
+      <a id="tip-btn" href="https://donate.stripe.com/6oU4gz0RR56j9pwauG4ow00" target="_blank" rel="noopener noreferrer"><span class="tip-icon">☕</span>&thinsp;Leave Casey a tip</a>
     </div>
     <hr class="info-divider">
 
@@ -932,21 +932,6 @@ if (window._etShowUpgradeModal) window._etShowUpgradeModal(window._etUpgrade);
 </div>
 
 
-<!-- ═══ TIP MODAL ═══ -->
-
-<div id="tip-modal" role="dialog" aria-modal="true" aria-labelledby="tip-modal-msg">
-  <div id="tip-modal-box">
-    <p id="tip-modal-msg">Stripe requires an email address. Check the box if you'd rather not provide your email, and I'll give them my own. I will NEVER give or sell your email to anyone, but I might notify you of new apps or major updates.</p>
-    <label id="tip-checkbox-label">
-      <input type="checkbox" id="tip-anon-check">
-      I'd rather not provide my email
-    </label>
-    <div id="tip-modal-btns">
-      <button id="tip-go-btn" onclick="submitTip()">Continue to tip jar &#x2192;</button>
-      <button id="tip-cancel-btn" onclick="closeTipModal()">Cancel</button>
-    </div>
-  </div>
-</div>
 
 <script src="soundfont-player.min.js"></script>
 <script src="js/platform.js"></script>
@@ -967,7 +952,6 @@ if (window._etShowUpgradeModal) window._etShowUpgradeModal(window._etUpgrade);
 <script src="js/render.js"></script>
 <script src="js/context-dispatch.js"></script>
 <script src="js/ui.js"></script>
-<script src="js/tip.js"></script>
 <!-- vosk-browser.js (5.5 MB UMD) is lazy-loaded by voice.js's loadVoskScript()
      on first opt-in (Hello → Yes). Eager-loading on boot would crash the
      iPhone PWA before the welcome overlay rendered. -->

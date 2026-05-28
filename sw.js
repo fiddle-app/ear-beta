@@ -1,7 +1,7 @@
 // Ear Tuner — Service Worker
 // Pre-caches the app shell; runtime-caches sound samples.
 
-const CACHE_VER    = '2026-05-28 16:53';  // stamped by deploy.sh — do not edit manually
+const CACHE_VER    = '2026-05-28 17:15';  // stamped by deploy.sh — do not edit manually
 const STATIC_CACHE = `ear-tuner-static-${CACHE_VER}`;
 const FONT_CACHE   = 'ear-tuner-fonts';
 const SOUND_CACHE  = 'ear-tuner-sounds';
@@ -34,7 +34,6 @@ const PRECACHE = [
   'js/render.js',
   'js/context-dispatch.js',
   'js/ui.js',
-  'js/tip.js',
   // vosk-browser.js intentionally omitted — voice.js lazy-loads it on first
   // opt-in (Hello → Yes). The fetch handler below will populate STATIC_CACHE
   // on first use, so subsequent launches still serve it offline.

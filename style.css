@@ -571,46 +571,14 @@ transition: background 0.15s;
 #info-tip-row { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; padding: 2px 0; }
 .info-tip-label { font-family: var(--font-info); font-size: var(--font-info-body); font-weight: 300; color: rgba(0,0,0,0.55); margin: 0; }
 #tip-btn {
--webkit-appearance: none; display: inline-flex; align-items: center; gap: 6px;
+display: inline-flex; align-items: center; gap: 6px; text-decoration: none;
 font-family: var(--font); font-size: clamp(13px, 3.5vw, 15px);
 padding: 10px 24px; border-radius: 999px; cursor: pointer;
-border: none; background: var(--color-green); color: #fff;
+background: var(--color-green); color: #fff;
 transition: background 0.15s; letter-spacing: 0.01em;
 }
 #tip-btn:active { background: var(--color-green-dark); }
 .tip-icon { font-size: 1.45em; line-height: 1; }
-/* Tip modal */
-#tip-modal {
-display: none; position: fixed; inset: 0; z-index: 600;
-background: rgba(0,0,0,0.60); align-items: center; justify-content: center; padding: 16px;
-}
-#tip-modal.open { display: flex; }
-#tip-modal-box {
-background: var(--color-parchment); border-radius: 16px; padding: 24px 22px;
-max-width: 440px; width: 100%; font-family: var(--font-info); color: var(--color-text-dark);
-display: flex; flex-direction: column; gap: 16px;
-}
-#tip-modal-msg { font-family: var(--font-info); font-size: var(--font-info-body); font-weight: 300; line-height: 1.6; margin: 0; }
-#tip-checkbox-label {
-display: flex; align-items: flex-start; gap: 10px; cursor: pointer;
-font-family: var(--font-info); font-size: var(--font-info-body); font-weight: 400;
-color: var(--color-text-dark); line-height: 1.4;
-}
-#tip-anon-check { margin-top: 3px; flex-shrink: 0; width: 18px; height: 18px; cursor: pointer; accent-color: var(--color-green); }
-#tip-modal-btns { display: flex; gap: 10px; flex-wrap: wrap; }
-#tip-go-btn {
--webkit-appearance: none; font-family: var(--font); font-size: clamp(13px, 3.5vw, 15px);
-padding: 10px 22px; border-radius: 999px; cursor: pointer;
-border: none; background: var(--color-green); color: #fff; transition: background 0.15s; flex-shrink: 0;
-}
-#tip-go-btn:active { background: var(--color-green-dark); }
-#tip-cancel-btn {
--webkit-appearance: none; font-family: var(--font); font-size: clamp(13px, 3.5vw, 15px);
-padding: 10px 22px; border-radius: 999px; cursor: pointer;
-border: 1.5px solid rgba(0,0,0,0.15); background: rgba(0,0,0,0.05); color: rgba(0,0,0,0.45);
-transition: background 0.15s;
-}
-#tip-cancel-btn:active { background: rgba(0,0,0,0.10); }
 
 /* Import Scores overlay */
 #import-overlay {
