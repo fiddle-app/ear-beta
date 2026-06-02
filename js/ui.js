@@ -538,6 +538,14 @@ function onMicAutoReleasedWhileForeground() {
   if (typeof micStream !== 'undefined' && micStream) return;       // already recovered
   const ov = $('resume-overlay');
   if (ov && ov.classList.contains('open')) return;                 // normal Resume already up
+  // The half-flip skipped _onMaybeBackgrounded entirely, so the recognizer was
+  // never stopped — it's stuck 'listening' on the now-dead stream.
+  // _performResumeRebuild only re-binds voice when vc.state === 'ready', so
+  // without this vcStop() the Resume tap rebuilds audio + mic but VC stays
+  // dead (confirmed 2026-06-02: half-flip → Resume → VC still down; a full-flip
+  // then fixes it precisely because its background teardown calls vcStop).
+  // Mirror that teardown here so vc → 'ready' and the rebuild's vcStart fires.
+  if (typeof vcStop === 'function') vcStop();
   console.log('[gate] half-flip recovery → Resume');
   if (typeof isNative === 'function' && isNative()) {
     _performResumeRebuild('mic-fg-stale');
