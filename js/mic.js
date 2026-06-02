@@ -55,35 +55,7 @@ async function acquireMic() {
       if (navigator.audioSession) {
         try { navigator.audioSession.type = 'play-and-record'; } catch(e){}
       }
-      if (typeof logAudioSession === 'function') logAudioSession('acquireMic');
-      // Explicitly disable all voice-processing layers. audio:true lets iOS
-      // default to "Voice" mode (VPIO) which applies NS/AGC/EC regardless of
-      // intent. latency:0 hints for the lowest-latency audio path, which on
-      // some iOS versions avoids the voice-processing audio unit entirely.
-      micStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
-          latency: 0,
-          channelCount: 1,
-          sampleRate: 48000,
-        },
-        video: false
-      });
-      // Verify iOS honored the constraints; re-apply if not.
-      const _t = micStream.getAudioTracks()[0];
-      if (_t) {
-        try {
-          const _s = _t.getSettings();
-          if (_s.echoCancellation || _s.noiseSuppression) {
-            console.warn('[mic] constraints not honored, re-applying...');
-            await _t.applyConstraints({
-              echoCancellation: false, noiseSuppression: false, autoGainControl: false
-            });
-          }
-        } catch(e) {}
-      }
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       const tracks = micStream.getAudioTracks();
       console.log('[mic] acquired tracks=' + tracks.length +
                   ' visible=' + (document.visibilityState === 'visible'));
@@ -172,7 +144,6 @@ function releaseMic() {
       navigator.audioSession.type = t;
     } catch (e) {}
   }
-  if (typeof logAudioSession === 'function') logAudioSession('releaseMic');
 }
 
 // True if our cached micStream is still usable. iOS may end the
