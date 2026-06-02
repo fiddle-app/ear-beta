@@ -93,11 +93,11 @@
 //                        only — NOT to A2DP, NOT to AirPlay, NOT to
 //                        car stereo. The "voice call" category.
 //
-// Policy (experiment 2026-06-02): always 'play-and-record', even when
-// no mic is active. Both VC-on and VC-off use the call volume rail,
-// giving consistent volume regardless of voice command state. The Web
-// API has no way to get A2DP + mic simultaneously; that requires a
-// native Capacitor plugin (future). See _resolveAudioSessionType.
+// Policy: 'playback' unless mic stream is live; see _resolveAudioSessionType.
+// 'play-and-record' without a live mic routes to the iPhone earpiece at
+// inaudible volume — confirmed 2026-06-02. Volume inconsistency between
+// VC-on and VC-off is a known iOS limitation; Capacitor native plugin is
+// the correct fix (AVAudioSession.measurement mode + outputVolume read).
 //
 // ── Things we tried that did NOT work ──
 //
@@ -180,23 +180,32 @@ function _resolveMasterGain() {
 //                        NOT to A2DP, NOT to AirPlay. The "voice call"
 //                        category. Uses call/voice volume rail.
 //
-// Policy (experiment 2026-06-02): always 'play-and-record'.
+// Policy: 'playback' unless mic stream is actually live (micStreamIsLive).
 //
-// Goal: consistent volume rail regardless of whether voice commands are
-// on or off. Research confirmed that 'playback' uses media volume and
-// 'play-and-record' uses call volume — independent rails, determined by
-// session type alone (not by mic presence). Always 'play-and-record'
-// means VC-on and VC-off land on the same volume rail.
+// 'playback' → media volume rail, A2DP / car stereo / AirPlay routing.
+// 'play-and-record' → required for active getUserMedia on iOS 18+.
 //
-// Tradeoff: car Bluetooth may route to HFP even without mic. This is
-// acceptable for now — volume consistency matters more than car routing
-// until the Capacitor build ships (native plugin can set A2DP-only).
+// Volume inconsistency between VC-on and VC-off is a known iOS limitation:
+// iOS voice processing (activated when a mic stream is live) boosts the
+// output path regardless of what the web page does. This cannot be
+// controlled via the Web API. Known fixes:
+//   • Capacitor native plugin: set AVAudioSessionMode.measurement to
+//     disable iOS voice processing, read outputVolume to normalize.
+//   • Web: no solution — accept the difference or use the in-app
+//     volume slider to compensate per-mode.
+//
+// 'play-and-record' WITHOUT a live mic stream routes to the iPhone
+// earpiece at inaudible volume — do NOT use it as a base state.
 //
 // History: unconditional play-and-record → dynamic appWantsMic() →
-// micStreamIsLive() → always playback (with InvalidStateError fallback)
-// → back to always play-and-record. The rationale is now documented.
+// micStreamIsLive() → always playback → always play-and-record (earpiece
+// routing — unusable) → back to micStreamIsLive(). Each experiment is
+// documented in the session log. 2026-06-02.
 function _resolveAudioSessionType() {
-  return 'play-and-record';
+  if (typeof micStreamIsLive === 'function' && micStreamIsLive()) {
+    return 'play-and-record';
+  }
+  return 'playback';
 }
 
 function nukeAudioCtx(reason) {

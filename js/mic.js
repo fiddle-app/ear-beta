@@ -46,36 +46,13 @@ async function acquireMic() {
   if (_micAcquireP) return _micAcquireP;
   _micAcquireP = (async () => {
     try {
-      // Disable iOS voice-processing pipeline on the mic track.
-      // By default getUserMedia({ audio: true }) enables echoCancellation,
-      // noiseSuppression, and autoGainControl. AGC in particular may cause
-      // iOS to apply output gain boosting that makes VC-on significantly
-      // louder than VC-off even within the same 'play-and-record' session.
-      // Disabling all three gives Vosk unprocessed audio (better for ASR)
-      // and may produce more consistent output volume. Testing 2026-06-02.
-      const MIC_CONSTRAINTS = {
-        audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
-        },
-        video: false,
-      };
-      let _usedFallback = false;
-      try {
-        micStream = await navigator.mediaDevices.getUserMedia(MIC_CONSTRAINTS);
-        console.log('[mic] acquired (no AGC/EC/NS)');
-      } catch (e) {
-        if (e && e.name === 'InvalidStateError' && navigator.audioSession) {
-          console.warn('[mic] getUserMedia rejected — switching to play-and-record and retrying');
-          _usedFallback = true;
-          try { navigator.audioSession.type = 'play-and-record'; } catch (_) {}
-          micStream = await navigator.mediaDevices.getUserMedia(MIC_CONSTRAINTS);
-          console.log('[mic] acquired from play-and-record fallback (no AGC/EC/NS)');
-        } else {
-          throw e;
-        }
-      }
+      // Acquire the mic with default iOS voice processing (AGC, echo
+      // cancellation, noise suppression). These defaults produce the
+      // best voice recognition results with Vosk and are required for
+      // iOS to apply the voice-processing audio route that makes VC-on
+      // audible. acquireMic() is only called when VC is enabled, so the
+      // session is already in 'play-and-record' via _resolveAudioSessionType.
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       const tracks = micStream.getAudioTracks();
       console.log('[mic] acquired tracks=' + tracks.length +
                   ' visible=' + (document.visibilityState === 'visible'));
