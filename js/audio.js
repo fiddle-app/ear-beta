@@ -10,14 +10,15 @@ function getMasterGainForSettings() {
 
 // VC-mode loudness compensation. We disable iOS voice processing (VPIO) on the
 // mic to dodge the earpiece/quiet trap (see appMicConstraints), but that also
-// drops VPIO's AGC boost — so while the mic is LIVE, output rides the quieter
-// speakerphone rail. Multiply the master gain by settings.vcGainBoost (1×–4×,
-// default 2×) to compensate. Gated on micStreamIsLive() (NOT sessionUseVoice):
-// the boost only belongs when audio is actually on the speakerphone rail (mic
-// live); with no live mic the output is on the loud media rail and must NOT be
-// boosted. Matches microbreaker's gating. Confirmed 2026-06-02.
+// drops VPIO's AGC boost — so when the app wants the mic, output rides the
+// quieter speakerphone rail. Multiply the master gain by settings.vcGainBoost
+// (1×–4×, default 2×) to compensate. Gated on appWantsMic() (the app-local
+// intent hook) rather than micStreamIsLive(): the live-mic check flickers false
+// during the brief mute/unmute events of normal use, which would make playback
+// volume lurch mid-round — the intent is stable. Matches microbreaker's gating.
+// Confirmed 2026-06-02.
 function vcGainMultiplier() {
-  if (typeof micStreamIsLive === 'function' && micStreamIsLive()) {
+  if (typeof appWantsMic === 'function' && appWantsMic()) {
     return (typeof settings !== 'undefined' && settings && settings.vcGainBoost)
       ? settings.vcGainBoost : 1;
   }
