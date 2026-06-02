@@ -95,6 +95,9 @@ Promise.all([audioP, micP]).then(([_, micOk]) => {
   if (sessionUseVoice && !micOk) {
     console.warn('[start] mic acquisition failed — voice will be unavailable for this round');
     sessionUseVoice = false;
+    // Clear the earpiece poison from the no-mic play-and-record window (see
+    // ui.js rebuildAudioForCurrentRoute).
+    if (typeof rebuildAudioForCurrentRoute === 'function') rebuildAudioForCurrentRoute();
   }
   if (typeof wlAcquire === 'function') wlAcquire('start');
   _handleStartContinue();

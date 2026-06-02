@@ -146,6 +146,21 @@ if (typeof vcOnSettingChange === 'function') vcOnSettingChange('vcKeepLastWord')
 // wait until next cold launch to actually use voice they just enabled.
 // Turning it OFF: stop the recognizer and disable Resume modal for the
 // rest of this session.
+
+// iOS binds an AudioContext's output route + volume rail at creation and it is
+// STICKY: a context that ever rendered under 'play-and-record' (VC on, or even
+// the brief no-mic pre-set on a *denied* getUserMedia) stays on the quiet
+// voice/earpiece route even after the category is reset to 'playback' —
+// setting the category alone does NOT re-route a live context (confirmed
+// 2026-06-02: VC-on→off and mic-denial both leave audio stuck quiet/earpiece
+// until the app is killed). Only a NEW context created while the category is
+// 'playback' binds to the loud media/speaker route. Call this after any
+// transition OUT of mic/VC use so playback gets a fresh, loud context.
+function rebuildAudioForCurrentRoute() {
+  if (typeof nukeAudioCtx === 'function') nukeAudioCtx('route-rebuild');
+  return (typeof ensureAudio === 'function') ? ensureAudio() : Promise.resolve();
+}
+
 function onVoiceToggle(enabled) {
 settings.voiceCommands = !!enabled;
 saveSettings();
@@ -162,6 +177,7 @@ if (enabled) {
     if (!micOk) {
       console.warn('[settings] mic acquire failed — voice will not engage this session');
       sessionUseVoice = false;
+      rebuildAudioForCurrentRoute();   // clear earpiece poison from the no-mic play-and-record window
       return;
     }
     if (typeof wlAcquire === 'function') wlAcquire('settings-voice-on');
@@ -175,6 +191,10 @@ if (enabled) {
   // next background. releaseMic() stops the tracks and drops to
   // 'playback'; toggling VC back on re-acquires. Symmetric with enable.
   if (typeof releaseMic === 'function') releaseMic();
+  // releaseMic() sets the category to 'playback', but the CURRENT context is
+  // still bound to the quiet voice route it rendered under while VC was on.
+  // Rebuild so playback gets a fresh context on the loud media route.
+  rebuildAudioForCurrentRoute();
 }
 if (typeof vcOnSettingChange === 'function') vcOnSettingChange('voiceCommands');
 }
@@ -336,6 +356,7 @@ function onHelloYes() {
     if (!micOk) {
       console.warn('[hello] mic acquisition failed — proceeding without VR for this session');
       sessionUseVoice = false;
+      rebuildAudioForCurrentRoute();   // clear earpiece poison from the no-mic play-and-record window
     } else if (typeof vcKickOffLoad === 'function') {
       // Lazy-load the Vosk bundle now that the user has opted in.
       try { vcKickOffLoad(); } catch (e) { console.warn('[hello] vcKickOffLoad threw:', e); }
