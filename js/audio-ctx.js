@@ -229,11 +229,15 @@ function _resolveMasterGain() {
 // routing — unusable) → micStreamIsLive() → intent-based (sessionUseVoice).
 // Each experiment is documented in the session log. 2026-06-02.
 function _resolveAudioSessionType() {
-  // Intent-based: if VC is on, we want the mic and need 'play-and-record'.
-  // If VC is off, we're playback-only. Mic-denied is user error; not handled.
-  // sessionUseVoice is defined in the app (voice.js / ui.js); guard for shared
-  // module use in apps that have no voice commands.
-  if (typeof sessionUseVoice !== 'undefined' && sessionUseVoice) {
+  // Intent-based, via the appWantsMic() callback each app defines in its
+  // app-local audio.js (NOT a synced file). This is the shared contract —
+  // ear-tuner answers with sessionUseVoice; microbreaker answers with
+  // (recording || voiceCommands). When the app wants the mic we need
+  // 'play-and-record'; otherwise 'playback'. Guard for shared-module use in
+  // an app that never defines the callback (defaults to playback). Do NOT
+  // hardcode a single app's gate (e.g. sessionUseVoice) here — that breaks
+  // every sibling app that gates the mic differently.
+  if (typeof appWantsMic === 'function' && appWantsMic()) {
     return 'play-and-record';
   }
   return 'playback';
