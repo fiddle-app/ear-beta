@@ -5,7 +5,7 @@
 // =================================================
 // Exposed globals: audioCtx, audioCtxGeneration, audioUnlocked, masterGain,
 //                  nukeAudioCtx(), ensureAudio(), muteMasterGain(),
-//                  unmuteMasterGain(), isAudioContextHealthy()
+//                  unmuteMasterGain(), isAudioContextHealthy(), logAudioSession()
 // Each app's audio.js may add its own synth functions that reference audioCtx,
 // and optionally a getMasterGainForSettings() global (see _resolveMasterGain).
 //
@@ -80,31 +80,48 @@
 //
 // ── iOS audio session category (separate concern, same module) ──
 //
+// CORRECTION (2026-06-02): an earlier version of this block claimed that
+// 'play-and-record' "routes to device speaker / HFP mono only — NOT to A2DP,
+// NOT to car stereo," and that being in that category is what makes the app
+// quiet. BOTH CLAIMS ARE FALSE and they misdirected two debugging sessions.
+// Full write-up + sources:
+// microbreaker/research/26-06-02-0143_ios-mic-capture-output-ducking.md
+// The corrected facts:
+//   - WebKit's 'play-and-record' explicitly sets AllowBluetooth +
+//     AllowBluetoothA2DP + AllowAirPlay (AudioSessionIOS.mm). A2DP / AirPlay /
+//     car stereo ARE permitted output routes. (Confirmed by a car test:
+//     Ear Tuner with voice on played out the car's Bluetooth A2DP.)
+//   - The "everything gets quiet while recording" effect is NOT the category.
+//     It's ACTIVE MIC CAPTURE ducking WebAudio output — WebKit bug 218012,
+//     unresolved through iOS 18.6. Plain WebAudio playback (our bells, review
+//     playback) is reduced and biased toward the receiver/earpiece whenever an
+//     input is live, whatever category string we set.
+//   - Separately, A2DP can't do full duplex, so while an input is active iOS
+//     drops Bluetooth to HFP (mono) — a quality hit, distinct from the loudness
+//     hit above.
+//
 // `navigator.audioSession.type` controls iOS's AVAudioSession category
 // — independent from AudioContext state but managed here because the
 // two interact (getUserMedia on the wrong category throws). Two values:
 //
-//   'playback'         — output only. Routes to Bluetooth A2DP, AirPlay,
-//                        car stereo, AirPods (stereo music quality).
-//                        getUserMedia REJECTS from this category on
-//                        iOS 18+ (InvalidStateError).
-//   'play-and-record'  — full duplex. Required for getUserMedia. Routes
-//                        output to device speaker / HFP mono Bluetooth
-//                        only — NOT to A2DP, NOT to AirPlay, NOT to
-//                        car stereo. The "voice call" category.
+//   'playback'         — output only. getUserMedia REJECTS from this category
+//                        on iOS 18+ (InvalidStateError).
+//   'play-and-record'  — full duplex; required for getUserMedia. Allows A2DP /
+//                        AirPlay / car as output routes, BUT active capture
+//                        ducks WebAudio output (bug 218012) and forces
+//                        Bluetooth to HFP mono.
 //
 // Dynamic switch policy: ensureAudio reads `appWantsMic()` (resolver
 // pattern — each app defines it) and sets the right category. acquireMic
 // forces 'play-and-record' just before getUserMedia (belt-and-suspenders
 // for the case where appWantsMic flipped true after the last ensureAudio).
-// releaseMic re-evaluates and may drop back to 'playback'.
+// releaseMic re-evaluates and may drop back to 'playback'. We still prefer
+// 'playback' when no mic is wanted — not because 'play-and-record' blocks the
+// car (it doesn't), but because dropping capture is what lets WebAudio output
+// return to full level (the bug-218012 workaround #1).
 //
-// Trigger that prompted the dynamic switch: Casey's 2026-05-13 car
-// test. Both apps were unconditionally 'play-and-record' which meant
-// notes played through the iPad speaker even with the car's Bluetooth
-// connected. YouTube and music apps routed correctly to the car —
-// because they use 'playback' category. Switching to dynamic gives
-// the same routing behaviour when mic isn't needed.
+// Diagnostic: logAudioSession() records the live `navigator.audioSession.type`
+// readback at each set-point so we can verify what mode we're actually in.
 //
 // ── Things we tried that did NOT work ──
 //
@@ -175,21 +192,20 @@ function _resolveMasterGain() {
 }
 
 // Resolves the desired iOS audio session category. Each app can define
-// a global `appWantsMic()` returning true/false. The category controls
-// iOS hardware routing:
+// a global `appWantsMic()` returning true/false. See the corrected doctrine
+// block above and research/26-06-02-0143_ios-mic-capture-output-ducking.md —
+// in short, 'play-and-record' does NOT block A2DP/car; the reason to prefer
+// 'playback' when no mic is wanted is that ending capture lets WebAudio output
+// return to full volume (WebKit bug 218012):
 //
-//   'playback'         — output-only. Routes to Bluetooth A2DP (stereo
-//                        music quality), AirPlay, headphones, car audio.
-//                        Matches what music apps and YouTube use.
-//                        iOS 18+ REJECTS getUserMedia from this category.
-//   'play-and-record'  — full duplex (output + input). Required for
-//                        getUserMedia on iOS 18+. Routes output to
-//                        device speaker / HFP mono Bluetooth only —
-//                        NOT to A2DP, NOT to AirPlay. The "voice call"
-//                        category.
+//   'playback'         — output-only. Allows A2DP / AirPlay / car. iOS 18+
+//                        REJECTS getUserMedia from this category.
+//   'play-and-record'  — full duplex; required for getUserMedia on iOS 18+.
+//                        Also allows A2DP / AirPlay as output routes, but
+//                        active capture ducks WebAudio output and drops
+//                        Bluetooth to HFP mono.
 //
-// We use 'playback' when the app doesn't need mic (better routing UX —
-// audio reaches Bluetooth car stereo / AirPods / etc.) and switch to
+// We use 'playback' when the app doesn't need mic and switch to
 // 'play-and-record' when mic is actually needed (VR engaged, recording
 // active). acquireMic() in mic.js also forces 'play-and-record' just
 // before getUserMedia as a belt-and-suspenders measure.
@@ -222,6 +238,36 @@ function nukeAudioCtx(reason) {
   }
   // Fire-and-forget close so the OS reclaims hardware eventually
   try { old.close(); } catch(e){}
+}
+
+// ── Diagnostic: snapshot the page's audio-session mode into the diag log ──
+// console.log is persisted by diag-log.js → Settings → Diagnostics → Error log.
+// Reads navigator.audioSession BACK after we set it, which answers "is the page
+// actually in play-and-record, or did the set silently no-op?":
+//   api=NO    → navigator.audioSession unsupported; we never set a category and
+//               WebKit chooses one implicitly (it picks play-and-record when an
+//               input is active, playback otherwise).
+//   type=auto → API present but we are NOT forcing a category — WebKit decides.
+//   type=play-and-record / playback → what the page is actually requesting.
+// The Web Platform does NOT expose the iOS output ROUTE name to JS, so pair the
+// logged type with the observed route (e.g. the car's Bluetooth screen) to learn
+// whether play-and-record actually reaches A2DP. Context: WebKit bug 218012 —
+// active mic capture ducks WebAudio output regardless of category.
+function logAudioSession(tag) {
+  try {
+    const as  = navigator.audioSession;
+    const trk = (typeof micStream !== 'undefined' && micStream)
+      ? (micStream.getAudioTracks()[0] || null) : null;
+    console.log('[session] ' + (tag || '') +
+      ' api=' + (as ? 'yes' : 'NO') +
+      ' type=' + (as ? as.type : 'n/a') +
+      ' state=' + (as ? (as.state || 'n/a') : 'n/a') +
+      ' wantMic=' + (typeof appWantsMic === 'function' ? appWantsMic() : '?') +
+      ' ctx=' + (audioCtx ? audioCtx.state : 'none') +
+      ' micTrack=' + (trk ? trk.readyState : 'none'));
+  } catch (e) {
+    console.log('[session] ' + (tag || '') + ' probe-failed: ' + (e && e.message));
+  }
 }
 
 async function ensureAudio() {
@@ -299,6 +345,7 @@ async function ensureAudio() {
   if (navigator.audioSession) {
     try { navigator.audioSession.type = _resolveAudioSessionType(); } catch(e){}
   }
+  logAudioSession('ensureAudio');
 }
 
 // Silence the master gain immediately, cancelling any future scheduled
