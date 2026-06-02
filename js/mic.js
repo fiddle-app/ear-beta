@@ -46,13 +46,25 @@ async function acquireMic() {
   if (_micAcquireP) return _micAcquireP;
   _micAcquireP = (async () => {
     try {
-      // Acquire the mic with default iOS voice processing (AGC, echo
-      // cancellation, noise suppression). These defaults produce the
-      // best voice recognition results with Vosk and are required for
-      // iOS to apply the voice-processing audio route that makes VC-on
-      // audible. acquireMic() is only called when VC is enabled, so the
-      // session is already in 'play-and-record' via _resolveAudioSessionType.
+      // Pre-set 'play-and-record' BEFORE getUserMedia. iOS 18+ rejects
+      // getUserMedia from a 'playback' session with InvalidStateError,
+      // and the session may well be 'playback' here: ensureAudio() no
+      // longer sets the type, so on the initial VC-on path (onHelloYes /
+      // onVoiceToggle) the only prior write is the module-init 'playback'
+      // baseline. acquireMic now owns the guarantee that the category is
+      // correct when getUserMedia evaluates it.
+      if (navigator.audioSession) {
+        try { navigator.audioSession.type = 'play-and-record'; } catch (_) {}
+      }
       micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      // Re-confirm session type immediately on successful acquisition —
+      // do NOT wait for the next ensureAudio() call (which may never come
+      // in VC gameplay since the user never touches the screen). This is
+      // the authoritative moment: mic is live, session must be
+      // 'play-and-record'. Symmetric with releaseMic() → 'playback'.
+      if (navigator.audioSession) {
+        try { navigator.audioSession.type = 'play-and-record'; } catch (_) {}
+      }
       const tracks = micStream.getAudioTracks();
       console.log('[mic] acquired tracks=' + tracks.length +
                   ' visible=' + (document.visibilityState === 'visible'));
@@ -103,6 +115,14 @@ async function acquireMic() {
     } catch(e) {
       console.warn('getUserMedia failed:', e);
       micStream = null;
+      // Undo the pre-set 'play-and-record' from above. With no mic stream
+      // it would route output to the iPhone earpiece at inaudible volume
+      // (confirmed 2026-06-02). Callers (onHelloYes / onVoiceToggle /
+      // handleStart) drop sessionUseVoice on failure but do NOT call
+      // releaseMic(), so this is the only cleanup point for the pre-set.
+      if (navigator.audioSession) {
+        try { navigator.audioSession.type = 'playback'; } catch (_) {}
+      }
       return false;
     } finally {
       _micAcquireP = null;

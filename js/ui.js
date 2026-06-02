@@ -169,6 +169,12 @@ if (enabled) {
 } else {
   sessionUseVoice = false;
   if (typeof vcStop === 'function') vcStop();
+  // Release the mic too — vcStop() only stops the recognizer. Without
+  // this the stream stays live and the session stays 'play-and-record'
+  // (mic indicator on, wrong category for a now-VC-off session) until the
+  // next background. releaseMic() stops the tracks and drops to
+  // 'playback'; toggling VC back on re-acquires. Symmetric with enable.
+  if (typeof releaseMic === 'function') releaseMic();
 }
 if (typeof vcOnSettingChange === 'function') vcOnSettingChange('voiceCommands');
 }
@@ -392,6 +398,38 @@ async function _onMaybeForegrounded() {
   if (!_wasBackgrounded) return;
   _wasBackgrounded = false;
   if (document.visibilityState !== 'visible') return;
+
+  // Failure-mode-4 recovery: re-assert session type on every visibility-
+  // regain. iOS may hand the hardware audio session to another app while
+  // we're backgrounded; writing to navigator.audioSession.type forces
+  // iOS to re-claim it for us (WebKit calls setCategoryOverride regardless
+  // of whether the value changed). This is the ONLY place we re-assert
+  // session type outside of acquire/release — visibility-regain is the
+  // correct trigger for cross-PWA session loss, not every tap.
+  //
+  // We do NOT set 'playback' when VC is on and mic is not yet live —
+  // that case is heading for Resume + acquireMic(), which will set
+  // 'play-and-record' after getUserMedia succeeds. Setting 'playback'
+  // here would be wrong and would persist until mic acquisition.
+  if (navigator.audioSession) {
+    try {
+      const micLive = typeof micStreamIsLive === 'function' && micStreamIsLive();
+      const before = navigator.audioSession.type;
+      let action;
+      if (micLive) {
+        navigator.audioSession.type = 'play-and-record';
+        action = 'play-and-record (mic live)';
+      } else if (!sessionUseVoice) {
+        navigator.audioSession.type = 'playback';
+        action = 'playback (VC off)';
+      } else {
+        // VC on + mic not live: don't touch — heading for Resume +
+        // acquireMic(), which will set 'play-and-record' with a real mic.
+        action = 'left untouched (VC on, mic not live)';
+      }
+      console.log('[gate] fg session-type: was=' + before + ' → ' + action);
+    } catch (_) {}
+  }
 
   // ── Probe both health signals ────────────────────────────────────
   const audioOk = (typeof isAudioContextHealthy === 'function')

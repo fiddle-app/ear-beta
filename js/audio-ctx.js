@@ -93,11 +93,34 @@
 //                        only — NOT to A2DP, NOT to AirPlay, NOT to
 //                        car stereo. The "voice call" category.
 //
-// Policy: 'playback' unless mic stream is live; see _resolveAudioSessionType.
-// 'play-and-record' without a live mic routes to the iPhone earpiece at
-// inaudible volume — confirmed 2026-06-02. Volume inconsistency between
-// VC-on and VC-off is a known iOS limitation; Capacitor native plugin is
-// the correct fix (AVAudioSession.measurement mode + outputVolume read).
+// Two write disciplines, by the value being written:
+//
+// HARDCODED writes — definitionally correct for their call site:
+//   1. Module init (audio-ctx.js bottom): 'playback' at page load.
+//   2. acquireMic() (mic.js): 'play-and-record' BEFORE getUserMedia
+//      (iOS 18+ rejects it from 'playback') and again after success.
+//   3. releaseMic() (mic.js): 'playback' immediately.
+//
+// INTENT-BASED writes — go through _resolveAudioSessionType(), which is
+// safe to call at any lifecycle point without risking a transitional
+// wrong value:
+//   4. ensureAudio() (this file): re-assert after create/resume. Re-claims
+//      the hardware session for a fresh context (failure mode 4) and lands
+//      'play-and-record' ahead of the concurrent acquireMic on rebuild.
+//   5. _onMaybeForegrounded() (ui.js): re-assert on visibility-regain for
+//      failure-mode-4 cross-PWA session recovery.
+//
+// NOTE on (5): it is intentionally NOT a blind _resolveAudioSessionType()
+// write. When VC is on but the mic is not yet live (screen-lock release),
+// it leaves the type UNTOUCHED — the flow is heading for Resume +
+// acquireMic, which will set 'play-and-record' with a real mic. Writing
+// 'play-and-record' there would route to the iPhone earpiece at inaudible
+// volume for the whole Resume-modal window — 'play-and-record' WITHOUT a
+// live mic does this, confirmed 2026-06-02. Never use it as a base state.
+// (This is why ensureAudio's intent-based write is safe but the foreground
+// re-assert needs the extra mic-live guard: ensureAudio always runs with a
+// mic present or being acquired in the same frame; the foreground path may
+// not be.)
 //
 // ── Things we tried that did NOT work ──
 //
@@ -180,7 +203,11 @@ function _resolveMasterGain() {
 //                        NOT to A2DP, NOT to AirPlay. The "voice call"
 //                        category. Uses call/voice volume rail.
 //
-// Policy: 'playback' unless mic stream is actually live (micStreamIsLive).
+// Policy: intent-based — 'play-and-record' when VC is on (sessionUseVoice),
+// 'playback' otherwise. NOT keyed on micStreamIsLive(): the mic is never
+// live at the moments this is called (fresh context / foreground after a
+// mic-releasing background), so a ground-truth check would collapse to
+// 'playback' every time. See _resolveAudioSessionType + the doctrine block.
 //
 // 'playback' → media volume rail, A2DP / car stereo / AirPlay routing.
 // 'play-and-record' → required for active getUserMedia on iOS 18+.
@@ -199,10 +226,14 @@ function _resolveMasterGain() {
 //
 // History: unconditional play-and-record → dynamic appWantsMic() →
 // micStreamIsLive() → always playback → always play-and-record (earpiece
-// routing — unusable) → back to micStreamIsLive(). Each experiment is
-// documented in the session log. 2026-06-02.
+// routing — unusable) → micStreamIsLive() → intent-based (sessionUseVoice).
+// Each experiment is documented in the session log. 2026-06-02.
 function _resolveAudioSessionType() {
-  if (typeof micStreamIsLive === 'function' && micStreamIsLive()) {
+  // Intent-based: if VC is on, we want the mic and need 'play-and-record'.
+  // If VC is off, we're playback-only. Mic-denied is user error; not handled.
+  // sessionUseVoice is defined in the app (voice.js / ui.js); guard for shared
+  // module use in apps that have no voice commands.
+  if (typeof sessionUseVoice !== 'undefined' && sessionUseVoice) {
     return 'play-and-record';
   }
   return 'playback';
@@ -268,37 +299,17 @@ async function ensureAudio() {
     try { await audioCtx.resume(); } catch(e){}
   }
   audioUnlocked = true;
-  // Set the audio session category — UNCONDITIONALLY (re-assign even
-  // when navigator.audioSession.type already reads the desired value).
-  //
-  // Why unconditional: the `audioSession.type` field is per-document.
-  // When the user switches between two fiddle-family PWAs (or our PWA
-  // and another audio app), iOS hands the hardware session to whichever
-  // is foregrounded. Our document's type field stays at its last
-  // setting because we never wrote anything else — but the iOS
-  // hardware path is owned by the other app. The conditional skip
-  // ("type already matches") would miss the cross-PWA case and
-  // AudioContext.destination would silently produce no output.
-  // (Confirmed by Casey 2026-05-13 16:20: ear-tuner → microbreaker →
-  // ear-tuner produced state='running' but no audible output until
-  // we dropped the conditional. Failure mode 4 in the doctrine block.)
-  //
-  // The TYPE is always 'playback' — see _resolveAudioSessionType.
-  // Routes through Bluetooth A2DP / AirPlay / car stereo and uses
-  // media volume. acquireMic does NOT pre-switch to 'play-and-record',
-  // so the session stays in 'playback' even when the mic is active.
-  //
-  // The setter is cheap on iOS when the value already matches; the
-  // idempotent re-assignment serves as our session-claim re-assertion.
-  //
-  // Pre-iOS-18, 'playback' worked even when mic was needed because
-  // getUserMedia didn't enforce a category match. iOS 18 made the
-  // category strict: getUserMedia on a 'playback' session rejects with
-  // InvalidStateError. The dynamic switch is how we keep both worlds
-  // working — see mic.js acquireMic for the gesture-frame switch
-  // ahead of getUserMedia.
+  // Re-assert the session category through the single source of truth.
+  // Re-writing a consistent value is harmless (WebKit's setCategoryOverride
+  // is idempotent for our purposes) and earns its keep twice: (1) after a
+  // fresh AudioContext following old.close(), it re-claims the hardware
+  // session (failure mode 4); (2) on the VC-on rebuild paths it lands
+  // 'play-and-record' ahead of the concurrent acquireMic(). It never
+  // creates a *sustained* mic-less 'play-and-record': every VC-on caller
+  // of ensureAudio() either already holds the mic (Branch B/C) or acquires
+  // it concurrently (onHelloYes / onVoiceToggle / _performResumeRebuild).
   if (navigator.audioSession) {
-    try { navigator.audioSession.type = _resolveAudioSessionType(); } catch(e){}
+    try { navigator.audioSession.type = _resolveAudioSessionType(); } catch (e) {}
   }
 }
 
@@ -398,6 +409,16 @@ window.addEventListener('focus',     () => { console.log('[bg] window-focus'); }
 // Page Lifecycle API — Safari ships these on some iOS versions; cheap to listen even when no-op.
 document.addEventListener('freeze',  () => { console.log('[bg] freeze'); });
 document.addEventListener('resume',  () => { console.log('[bg] resume'); });
+
+// Baseline session type: 'playback' at page load. This is the correct
+// state before any mic is acquired. acquireMic() overrides to
+// 'play-and-record' on success; releaseMic() resets to 'playback'.
+// Failure-mode-4 re-assertion is handled in _onMaybeForegrounded()
+// (ui.js), not here — visibility-regain is the right trigger for
+// cross-PWA session loss, not every tap.
+if (navigator.audioSession) {
+  try { navigator.audioSession.type = 'playback'; } catch (_) {}
+}
 
 // iOS/iPadOS: unlock audio context on any touch, in case ensureAudio()
 // was never called (e.g. foot pedal was first interaction)
