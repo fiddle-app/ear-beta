@@ -27,6 +27,15 @@
 let micStream     = null;
 const _MIC_PERSISTENT_MUTE_MS = 300;
 let _micPersistentMuteTimer   = null;
+// Foreground ("half-flip") recovery tuning — see _maybeRecoverForegroundMic.
+// The delay MUST exceed the observed auto-release→background lag (~0.9s,
+// 2026-06-02) so that a real screen-lock has already fired
+// visibilitychange→hidden by the time we check — otherwise we'd wrongly
+// "recover" the mic while a lock is mid-flight. Cooldown guards against a
+// mute→release→reacquire thrash loop if iOS keeps re-muting.
+const _MIC_FG_RECOVERY_DELAY_MS    = 1500;
+const _MIC_FG_RECOVERY_COOLDOWN_MS = 4000;
+let   _micFgRecoveryAt             = 0;
 // In-flight getUserMedia promise — concurrent callers share this so we
 // don't double-prompt on iOS or leak the first stream when two paths
 // (e.g., a pointerdown warm-up + a click handler) both call acquireMic
@@ -93,6 +102,7 @@ async function acquireMic() {
             _micPersistentMuteTimer = null;
             console.log('[mic] auto-release on persistent mute (experiment)');
             releaseMic();
+            _maybeRecoverForegroundMic();
           }, _MIC_PERSISTENT_MUTE_MS);
         });
         track.addEventListener('unmute', () => {
@@ -157,6 +167,42 @@ function releaseMic() {
   if (navigator.audioSession) {
     try { navigator.audioSession.type = 'playback'; } catch (e) {}
   }
+}
+
+// Half-flip recovery. The persistent-mute auto-release above exists for the
+// pre-lock cascade (screen lock → app backgrounds → the foreground/Resume
+// path rebuilds the mic). But iOS also briefly mutes the mic on an
+// *incomplete* app-switch gesture ("half-flip") while the app stays
+// foreground. There the auto-release stops the stream but NO visibilitychange
+// fires — so the app's Resume recovery never runs, and in voice-command mode
+// (no taps) the mic stays dead until a full app round-trip. Confirmed repro
+// 2026-06-02 17:41.
+//
+// Detect that case — still visible a beat after the release — and hand it to
+// the app's onMicAutoReleasedWhileForeground() hook (re-acquire + re-bind its
+// consumers, e.g. the voice recognizer). We never backgrounded, so permission
+// is live and getUserMedia is permitted outside a gesture here. A real lock is
+// excluded because by _MIC_FG_RECOVERY_DELAY_MS the app has already gone
+// hidden. The cooldown prevents a mute→release→reacquire thrash loop.
+function _maybeRecoverForegroundMic() {
+  setTimeout(() => {
+    if (document.visibilityState !== 'visible') return;  // real lock → leave for the Resume path
+    if (micStream) return;                               // already recovered (iOS un-muted / gesture path)
+    if (!(typeof appWantsMic === 'function' && appWantsMic())) return;
+    const now = Date.now();
+    if (now - _micFgRecoveryAt < _MIC_FG_RECOVERY_COOLDOWN_MS) {
+      console.log('[mic] fg-recovery skipped — cooldown');
+      return;
+    }
+    _micFgRecoveryAt = now;
+    if (typeof onMicAutoReleasedWhileForeground === 'function') {
+      console.log('[mic] fg-recovery — handing to app (half-flip)');
+      onMicAutoReleasedWhileForeground();
+    } else {
+      console.log('[mic] fg-recovery — re-acquiring bare mic (no app handler)');
+      acquireMic();
+    }
+  }, _MIC_FG_RECOVERY_DELAY_MS);
 }
 
 // True if our cached micStream is still usable. iOS may end the

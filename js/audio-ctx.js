@@ -195,13 +195,23 @@ function _resolveMasterGain() {
 //
 //   'playback'         — output-only. Routes to Bluetooth A2DP (stereo
 //                        music quality), AirPlay, headphones, car audio.
-//                        Uses media volume rail (side buttons during media).
-//                        iOS 18+ REJECTS getUserMedia from this category.
+//                        Uses the MEDIA volume rail. CONFIRMED 2026-06-02:
+//                        VC-off output is tightly + bidirectionally coupled
+//                        to the media rail (moving the YouTube/media slider
+//                        moves our volume and vice-versa). iOS 18+ REJECTS
+//                        getUserMedia from this category.
 //   'play-and-record'  — full duplex (output + input). Required for
 //                        getUserMedia on iOS 18+. Routes output to
 //                        device speaker / HFP mono Bluetooth only —
 //                        NOT to A2DP, NOT to AirPlay. The "voice call"
-//                        category. Uses call/voice volume rail.
+//                        category. Uses the SPEAKERPHONE volume rail.
+//                        CONFIRMED 2026-06-02: VC-on output is tightly +
+//                        bidirectionally coupled to the speakerphone rail
+//                        (a voicemail played on speakerphone moves our
+//                        volume and vice-versa). It is NOT the media rail
+//                        and NOT the Ringtones & Alerts rail — even with
+//                        "Change with Buttons" on. Not readable from a PWA;
+//                        only a native plugin can normalize it.
 //
 // Policy: intent-based — 'play-and-record' when VC is on (sessionUseVoice),
 // 'playback' otherwise. NOT keyed on micStreamIsLive(): the mic is never
