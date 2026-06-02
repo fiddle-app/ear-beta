@@ -93,18 +93,22 @@
 //                        only — NOT to A2DP, NOT to AirPlay, NOT to
 //                        car stereo. The "voice call" category.
 //
-// Policy (as of 2026-06-02): always 'playback', unconditionally.
-// ensureAudio calls _resolveAudioSessionType() which always returns
-// 'playback'. acquireMic does NOT pre-switch to 'play-and-record'.
-// releaseMic drops to 'playback' (already the policy, so a no-op).
+// Policy (as of 2026-06-02): always 'playback'; acquireMic falls back
+// to 'play-and-record' only if getUserMedia rejects InvalidStateError.
+//
+// On a fresh session iOS allows getUserMedia from 'playback', giving
+// phone mic + A2DP car audio simultaneously. On re-acquisition after
+// mic auto-release + Resume rebuild, iOS 18 may reject with
+// InvalidStateError. acquireMic catches that and retries with
+// 'play-and-record' (loses A2DP, but mic + audio work).
 //
 // History: originally 'play-and-record' unconditionally (iPad speaker
 // instead of car Bluetooth). Then dynamic via appWantsMic() (intent-
 // based). Then micStreamIsLive() (stream-state-based). Casey's
-// 2026-06-02 car test showed A2DP + phone mic works when the session
-// is never switched out of 'playback' — the 'play-and-record' switch
-// was the cause of HFP negotiation. Now unconditionally 'playback';
-// if getUserMedia rejects with InvalidStateError on iOS 18+, revisit.
+// 2026-06-02 car test showed A2DP + phone mic works on a fresh session
+// — the 'play-and-record' switch was the HFP trigger. Two-step
+// acquire is the current policy: optimistic 'playback', fallback to
+// 'play-and-record' on InvalidStateError.
 //
 // ── Things we tried that did NOT work ──
 //
