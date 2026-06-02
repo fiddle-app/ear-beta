@@ -46,26 +46,32 @@ async function acquireMic() {
   if (_micAcquireP) return _micAcquireP;
   _micAcquireP = (async () => {
     try {
-      // Try getUserMedia from the current 'playback' session. This works
-      // on a fresh page load (iOS allows it the first time), giving us
-      // phone mic + A2DP car audio simultaneously — the ideal case.
-      //
-      // On re-acquisition (after mic auto-release + Resume rebuild), iOS
-      // 18 may reject with InvalidStateError. If it does, fall back to
-      // 'play-and-record' and retry. This loses A2DP (car routes to HFP)
-      // but at least mic + audio still work. Log which path was taken so
-      // we can track how often the fallback fires.
+      // Disable iOS voice-processing pipeline on the mic track.
+      // By default getUserMedia({ audio: true }) enables echoCancellation,
+      // noiseSuppression, and autoGainControl. AGC in particular may cause
+      // iOS to apply output gain boosting that makes VC-on significantly
+      // louder than VC-off even within the same 'play-and-record' session.
+      // Disabling all three gives Vosk unprocessed audio (better for ASR)
+      // and may produce more consistent output volume. Testing 2026-06-02.
+      const MIC_CONSTRAINTS = {
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
+        video: false,
+      };
       let _usedFallback = false;
       try {
-        micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-        console.log('[mic] acquired from playback session');
+        micStream = await navigator.mediaDevices.getUserMedia(MIC_CONSTRAINTS);
+        console.log('[mic] acquired (no AGC/EC/NS)');
       } catch (e) {
         if (e && e.name === 'InvalidStateError' && navigator.audioSession) {
-          console.warn('[mic] getUserMedia rejected from playback — switching to play-and-record and retrying');
+          console.warn('[mic] getUserMedia rejected — switching to play-and-record and retrying');
           _usedFallback = true;
           try { navigator.audioSession.type = 'play-and-record'; } catch (_) {}
-          micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-          console.log('[mic] acquired from play-and-record fallback');
+          micStream = await navigator.mediaDevices.getUserMedia(MIC_CONSTRAINTS);
+          console.log('[mic] acquired from play-and-record fallback (no AGC/EC/NS)');
         } else {
           throw e;
         }
