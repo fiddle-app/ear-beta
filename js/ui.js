@@ -523,6 +523,29 @@ function showResume(reason) {
   ov.classList.add('open');
 }
 
+// Half-flip mic recovery hook — invoked by _shared/js/mic.js
+// (_maybeRecoverForegroundMic) when the persistent-mute auto-release stopped
+// the stream but the app stayed foreground (incomplete app-switch). No
+// visibilitychange fires, so the normal foreground/Resume path never runs and
+// VC dies silently. We CANNOT re-acquire gesture-lessly — iOS pops a mic
+// permission prompt mid-app-carousel (confirmed 2026-06-02) — so route to the
+// SAME Resume flow as a real foreground regain; the re-acquire then happens
+// inside the user's Resume tap (a gesture frame, no prompt). Collision-guard:
+// if a real background+return already opened Resume (racing this timer), or
+// the mic somehow recovered, do nothing.
+function onMicAutoReleasedWhileForeground() {
+  if (typeof sessionUseVoice === 'undefined' || !sessionUseVoice) return;
+  if (typeof micStream !== 'undefined' && micStream) return;       // already recovered
+  const ov = $('resume-overlay');
+  if (ov && ov.classList.contains('open')) return;                 // normal Resume already up
+  console.log('[gate] half-flip recovery → Resume');
+  if (typeof isNative === 'function' && isNative()) {
+    _performResumeRebuild('mic-fg-stale');
+  } else {
+    showResume('mic-fg-stale');
+  }
+}
+
 // Resume tap — fresh user gesture frame. Per Casey's report, the
 // "probe-and-conditional-nuke" approach was returning healthy probes
 // for contexts that were actually dead, leaving audio silent after

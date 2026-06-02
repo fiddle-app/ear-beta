@@ -179,11 +179,12 @@ function releaseMic() {
 // 2026-06-02 17:41.
 //
 // Detect that case — still visible a beat after the release — and hand it to
-// the app's onMicAutoReleasedWhileForeground() hook (re-acquire + re-bind its
-// consumers, e.g. the voice recognizer). We never backgrounded, so permission
-// is live and getUserMedia is permitted outside a gesture here. A real lock is
-// excluded because by _MIC_FG_RECOVERY_DELAY_MS the app has already gone
-// hidden. The cooldown prevents a mute→release→reacquire thrash loop.
+// the app's onMicAutoReleasedWhileForeground() hook. The app routes to its
+// Resume/gesture flow: a gesture-less acquireMic() here pops an iOS mic
+// permission prompt mid-app-carousel (confirmed 2026-06-02), so recovery MUST
+// happen inside a user gesture. A real lock is excluded because by
+// _MIC_FG_RECOVERY_DELAY_MS the app has already gone hidden (the normal
+// foreground/Resume path owns that). The cooldown prevents thrash.
 function _maybeRecoverForegroundMic() {
   setTimeout(() => {
     if (document.visibilityState !== 'visible') return;  // real lock → leave for the Resume path
@@ -199,8 +200,10 @@ function _maybeRecoverForegroundMic() {
       console.log('[mic] fg-recovery — handing to app (half-flip)');
       onMicAutoReleasedWhileForeground();
     } else {
-      console.log('[mic] fg-recovery — re-acquiring bare mic (no app handler)');
-      acquireMic();
+      // No app handler: a gesture-less acquireMic() pops an iOS mic permission
+      // prompt mid-app-carousel (confirmed 2026-06-02), so don't — the app
+      // must own recovery and route it through a user gesture.
+      console.log('[mic] fg-recovery — no app handler; cannot recover without a gesture');
     }
   }, _MIC_FG_RECOVERY_DELAY_MS);
 }

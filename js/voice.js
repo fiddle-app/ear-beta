@@ -282,31 +282,6 @@ function vcStop() {
   if (el) el.classList.remove('visible');
 }
 
-// Half-flip mic recovery — invoked by _shared/js/mic.js
-// (_maybeRecoverForegroundMic) when the persistent-mute auto-release stopped
-// the stream but the app stayed foreground (incomplete app-switch). No
-// visibilitychange fires in that case, so the normal Resume path never runs;
-// in VC mode there are also no taps to recover on. Re-acquire the mic and
-// re-bind the recognizer gesture-lessly (permission is live — we never
-// backgrounded). vc is likely still 'listening' on the now-dead stream, so
-// stop it first so vcStart() re-binds to the fresh stream. Confirmed repro
-// 2026-06-02 17:41 — half-flip then audio glitch then VC dead until a full
-// app round-trip.
-async function onMicAutoReleasedWhileForeground() {
-  if (typeof sessionUseVoice === 'undefined' || !sessionUseVoice) return;
-  try {
-    const ok = (typeof acquireMic === 'function') ? await acquireMic() : false;
-    if (!ok) { console.warn('[voice] fg-recovery: mic re-acquire failed'); return; }
-    if (typeof vcStop === 'function') vcStop();   // listening → ready, so vcStart can re-bind
-    if (typeof vcStart === 'function') {
-      const started = await vcStart();
-      console.log('[voice] fg-recovery: vcStart=' + started);
-    }
-  } catch (e) {
-    console.warn('[voice] fg-recovery error:', e);
-  }
-}
-
 // Tear down the voice-commands instance entirely, freeing the ~80MB
 // Vosk WASM heap. Used by the visibility-regain Branch C silent
 // rebuild — discarding vc forces vcKickOffLoad to rebuild from scratch,
