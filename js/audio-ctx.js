@@ -93,22 +93,11 @@
 //                        only — NOT to A2DP, NOT to AirPlay, NOT to
 //                        car stereo. The "voice call" category.
 //
-// Policy (as of 2026-06-02): always 'playback'; acquireMic falls back
-// to 'play-and-record' only if getUserMedia rejects InvalidStateError.
-//
-// On a fresh session iOS allows getUserMedia from 'playback', giving
-// phone mic + A2DP car audio simultaneously. On re-acquisition after
-// mic auto-release + Resume rebuild, iOS 18 may reject with
-// InvalidStateError. acquireMic catches that and retries with
-// 'play-and-record' (loses A2DP, but mic + audio work).
-//
-// History: originally 'play-and-record' unconditionally (iPad speaker
-// instead of car Bluetooth). Then dynamic via appWantsMic() (intent-
-// based). Then micStreamIsLive() (stream-state-based). Casey's
-// 2026-06-02 car test showed A2DP + phone mic works on a fresh session
-// — the 'play-and-record' switch was the HFP trigger. Two-step
-// acquire is the current policy: optimistic 'playback', fallback to
-// 'play-and-record' on InvalidStateError.
+// Policy (experiment 2026-06-02): always 'play-and-record', even when
+// no mic is active. Both VC-on and VC-off use the call volume rail,
+// giving consistent volume regardless of voice command state. The Web
+// API has no way to get A2DP + mic simultaneously; that requires a
+// native Capacitor plugin (future). See _resolveAudioSessionType.
 //
 // ── Things we tried that did NOT work ──
 //
@@ -191,21 +180,23 @@ function _resolveMasterGain() {
 //                        NOT to A2DP, NOT to AirPlay. The "voice call"
 //                        category. Uses call/voice volume rail.
 //
-// Policy: always 'playback', unconditionally.
+// Policy (experiment 2026-06-02): always 'play-and-record'.
 //
-// 'playback' routes audio through Bluetooth A2DP / car stereo / AirPlay
-// and uses the media volume rail. Casey's 2026-06-02 car test confirmed
-// that 'play-and-record' negotiates HFP (phone call mode) with the car,
-// hijacking the Bluetooth connection instead of routing through the
-// stereo. We want phone mic + car A2DP simultaneously — Casey's session-
-// carry test showed iOS allows this when 'playback' is maintained.
+// Goal: consistent volume rail regardless of whether voice commands are
+// on or off. Research confirmed that 'playback' uses media volume and
+// 'play-and-record' uses call volume — independent rails, determined by
+// session type alone (not by mic presence). Always 'play-and-record'
+// means VC-on and VC-off land on the same volume rail.
 //
-// iOS 18 is documented to reject getUserMedia from 'playback', but that
-// has not been empirically verified in our context. acquireMic() no
-// longer pre-switches to 'play-and-record'; if getUserMedia rejects,
-// we'll catch the error and revisit. Until then, always 'playback'.
+// Tradeoff: car Bluetooth may route to HFP even without mic. This is
+// acceptable for now — volume consistency matters more than car routing
+// until the Capacitor build ships (native plugin can set A2DP-only).
+//
+// History: unconditional play-and-record → dynamic appWantsMic() →
+// micStreamIsLive() → always playback (with InvalidStateError fallback)
+// → back to always play-and-record. The rationale is now documented.
 function _resolveAudioSessionType() {
-  return 'playback';
+  return 'play-and-record';
 }
 
 function nukeAudioCtx(reason) {
