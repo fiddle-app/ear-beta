@@ -125,6 +125,13 @@ const limitChk = $('s-limit-vr');
 if (limitChk) limitChk.checked = !!settings.limitVrVocab;
 const keepChk = $('s-vc-keep');
 if (keepChk) keepChk.checked = !!settings.vcKeepLastWord;
+const gainRow = $('s-vc-gain-row');
+if (gainRow) gainRow.style.display = settings.voiceCommands ? '' : 'none';
+const gb = settings.vcGainBoost || 2;
+const gainSlider = $('s-vc-gain-slider');
+if (gainSlider) gainSlider.value = gb;
+const gainVal = $('s-vc-gain-val');
+if (gainVal) gainVal.textContent = gb.toFixed(1) + '×';
 }
 
 function onLimitVrToggle(enabled) {
@@ -185,7 +192,20 @@ settings.volume = pct / 100;
 saveSettings();
 $('s-volume-val').textContent = pct + '%';
 if (typeof masterGain !== 'undefined' && masterGain) {
-  masterGain.gain.value = settings.volume;
+  masterGain.gain.value = effectiveVolume();
+}
+schedulePreview();
+}
+
+// Voice-mode volume boost (1×–4×). Applied on top of the Volume setting, but
+// only while the mic is live (see audio.js effectiveVolume / vcGainMultiplier).
+function adjustVcGainBoost(val) {
+const x = Math.max(1, Math.min(4, parseFloat(val) || 2));
+settings.vcGainBoost = x;
+saveSettings();
+$('s-vc-gain-val').textContent = x.toFixed(1) + '×';
+if (typeof masterGain !== 'undefined' && masterGain && typeof effectiveVolume === 'function') {
+  masterGain.gain.value = effectiveVolume();
 }
 schedulePreview();
 }

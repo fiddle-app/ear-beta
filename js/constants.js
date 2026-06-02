@@ -30,7 +30,7 @@ const VOICE_GAIN = {
 // ══════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════
-const BUILD_DATE  = '2026-06-02 15:59';   // stamped by deploy.sh — do not edit manually
+const BUILD_DATE  = '2026-06-02 17:00';   // stamped by deploy.sh — do not edit manually
 const CENTS_SEQ   = [100, 50, 25, 20, 15, 10, 7, 6, 5, 4.5, 4.0, 3.5, 3.0, 2.9, 2.8, 2.7, 2.6, 2.5, 2.4, 2.3, 2.2, 2.1, 2.0, 1.9, 1.8, 1.7, 1.6, 1.5, 1.4, 1.3, 1.2, 1.1, 1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1];
 const MAX_CENTS   = CENTS_SEQ[0]; // 100 — largest/easiest difference
 const fmtC        = c => Number.isInteger(c) ? c+'¢' : c.toFixed(1)+'¢'; // format cents value
@@ -67,6 +67,8 @@ const DEFAULTS = {
   lowestNote:22, highestNote:53,
   startCentsIdx:3, noteDurIdx:3, attack:1, decay:1, soundIdx:2, testsPerRound:3,
   volume: 1.0,
+  vcGainBoost: 2.0,       // master-gain multiplier while the mic is LIVE — compensates for the
+                          // VPIO/AGC loudness we give up by disabling iOS voice processing (1×–4×)
   voiceCommands: true,    // global VR opt-in; Hello screen appears daily when true
   limitVrVocab:  true,    // strict-grammar recognizer for the constrained command set
   vcKeepLastWord: false,  // diagnostics: keep the last recognized word on screen

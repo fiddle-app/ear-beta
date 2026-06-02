@@ -5,7 +5,28 @@
 // regain). Ear-tuner drives masterGain directly from settings.volume —
 // the shared module's notifyVol fallback would otherwise pin gain to 1.0.
 function getMasterGainForSettings() {
-  return (typeof settings !== 'undefined' && settings) ? settings.volume : 1.0;
+  return effectiveVolume();
+}
+
+// VC-mode loudness compensation. We disable iOS voice processing (VPIO) on the
+// mic to dodge the earpiece/quiet trap (see appMicConstraints), but that also
+// drops VPIO's AGC boost — so while the mic is LIVE, output rides the quieter
+// speakerphone rail. Multiply the master gain by settings.vcGainBoost (1×–4×,
+// default 2×) to compensate. Gated on micStreamIsLive() (NOT sessionUseVoice):
+// the boost only belongs when audio is actually on the speakerphone rail (mic
+// live); with no live mic the output is on the loud media rail and must NOT be
+// boosted. Matches microbreaker's gating. Confirmed 2026-06-02.
+function vcGainMultiplier() {
+  if (typeof micStreamIsLive === 'function' && micStreamIsLive()) {
+    return (typeof settings !== 'undefined' && settings && settings.vcGainBoost)
+      ? settings.vcGainBoost : 1;
+  }
+  return 1;
+}
+
+function effectiveVolume() {
+  const base = (typeof settings !== 'undefined' && settings) ? settings.volume : 1.0;
+  return base * vcGainMultiplier();
 }
 
 // Resolver consumed by _shared/js/audio-ctx.js (ensureAudio) and
@@ -42,7 +63,7 @@ function appMicConstraints() {
 // to ctx.destination if masterGain is not yet built.
 function audioOut() {
   if (typeof masterGain !== 'undefined' && masterGain) {
-    masterGain.gain.value = settings.volume;
+    masterGain.gain.value = effectiveVolume();
     return masterGain;
   }
   return audioCtx.destination;
