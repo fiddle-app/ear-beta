@@ -20,6 +20,23 @@ function appWantsMic() {
   return typeof sessionUseVoice !== 'undefined' && !!sessionUseVoice;
 }
 
+// Mic constraints consumed by _shared/js/mic.js (getUserMedia). Disable iOS
+// voice processing — echoCancellation / noiseSuppression / autoGainControl —
+// so capture does NOT engage the voice-processing I/O unit (VPIO). VPIO
+// reroutes output to the iPhone earpiece at attenuated volume and sticks for
+// the whole AVAudioSession with no web API to clear it (confirmed 2026-06-02:
+// VC use, mic-denial, and VC-on→off all left audio quiet until reboot).
+// Disabling the processing keeps 'play-and-record' on the main speaker / media
+// rail, loud — the same approach microbreaker uses. Bonus: cleaner raw audio
+// for the Vosk recognizer. ear-tuner had this (commit 819623a) but it was lost
+// in the blanket revert 5373f27; restored here as the actual fix.
+function appMicConstraints() {
+  return {
+    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+    video: false
+  };
+}
+
 // Audio output destination — masterGain (when audioCtx exists) lets the
 // Volume setting scale every tone, beep, and chime in one place. Falls back
 // to ctx.destination if masterGain is not yet built.

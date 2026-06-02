@@ -65,7 +65,18 @@ async function acquireMic() {
       if (navigator.audioSession) {
         try { navigator.audioSession.type = 'play-and-record'; } catch (_) {}
       }
-      micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      // Mic constraints come from the app via appMicConstraints() (app-local,
+      // like appWantsMic). Fiddle apps disable iOS voice processing
+      // (echoCancellation / noiseSuppression / autoGainControl) because the
+      // default-on processing engages the voice-processing I/O unit (VPIO),
+      // which reroutes output to the iPhone earpiece at attenuated volume and
+      // STICKS for the whole AVAudioSession with no web API to undo it
+      // (confirmed 2026-06-02; microbreaker avoids the trap exactly this way).
+      // Default to plain audio if the app defines no hook.
+      const _micConstraints = (typeof appMicConstraints === 'function')
+        ? appMicConstraints()
+        : { audio: true, video: false };
+      micStream = await navigator.mediaDevices.getUserMedia(_micConstraints);
       // Re-confirm session type immediately on successful acquisition —
       // do NOT wait for the next ensureAudio() call (which may never come
       // in VC gameplay since the user never touches the screen). This is
