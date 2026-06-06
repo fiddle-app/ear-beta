@@ -22,6 +22,15 @@
 //
 // Globals exposed: micStream, acquireMic, releaseMic, micStreamIsLive.
 // Globals consumed: audioCtx, audioUnlocked (from audio-ctx.js).
+// Optional app hooks (defined app-local, guarded by typeof here):
+//   appMicConstraints()                 — getUserMedia constraints
+//   appWantsMic()                       — drives the audio-session category
+//   onMicAutoReleasedWhileForeground()  — half-flip recovery handoff
+//   onMicAcquired()                     — fires after every successful acquire;
+//                                         apps use it for post-acquire
+//                                         workarounds (e.g. microbreaker's
+//                                         one-shot iOS route-heal cycle). Owns
+//                                         its own one-shot / idempotency.
 // =================================================
 
 let micStream     = null;
@@ -131,6 +140,13 @@ async function acquireMic() {
       }
       if (typeof audioUnlocked !== 'undefined') {
         audioUnlocked = true;
+      }
+      // Optional post-acquire app hook. Fires on EVERY successful acquisition;
+      // the app owns any one-shot guarding (microbreaker uses it for the iOS
+      // first-acquire route-heal cycle). Wrapped so a throwing hook can't fail
+      // the acquire we just completed.
+      if (typeof onMicAcquired === 'function') {
+        try { onMicAcquired(); } catch (e) { console.warn('[mic] onMicAcquired hook threw:', e); }
       }
       return true;
     } catch(e) {
