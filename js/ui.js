@@ -158,7 +158,7 @@ settings.voiceCommands = !!enabled;
 saveSettings();
 renderVoiceSettings();
 if (enabled) {
-  sessionUseVoice = true;
+  setSessionUseVoice(true);
   // Synchronous gesture-frame kick: mic + audio first, then vc load.
   // iOS Safari closes the getUserMedia() permission window after the
   // first async boundary, so acquireMic MUST be called before any await.
@@ -168,13 +168,13 @@ if (enabled) {
   Promise.all([audioP, micP]).then(([_, micOk]) => {
     if (!micOk) {
       console.warn('[settings] mic acquire failed — voice will not engage this session');
-      sessionUseVoice = false;
+      setSessionUseVoice(false);
       return;
     }
     if (typeof wlAcquire === 'function') wlAcquire('settings-voice-on');
   }).catch(e => console.warn('[settings] voice engage failed:', e));
 } else {
-  sessionUseVoice = false;
+  setSessionUseVoice(false);
   if (typeof vcStop === 'function') vcStop();
   // Release the mic too — vcStop() only stops the recognizer. Without
   // this the stream stays live and the session stays 'play-and-record'
@@ -191,9 +191,7 @@ const pct = Math.max(0, Math.min(200, parseInt(percentStr, 10) || 0));
 settings.volume = pct / 100;
 saveSettings();
 $('s-volume-val').textContent = pct + '%';
-if (typeof masterGain !== 'undefined' && masterGain) {
-  masterGain.gain.value = effectiveVolume();
-}
+if (typeof refreshMasterGain === 'function') refreshMasterGain();
 schedulePreview();
 }
 
@@ -204,9 +202,7 @@ const x = Math.max(1, Math.min(4, parseFloat(val) || 2));
 settings.vcGainBoost = x;
 saveSettings();
 $('s-vc-gain-val').textContent = x.toFixed(1) + '×';
-if (typeof masterGain !== 'undefined' && masterGain && typeof effectiveVolume === 'function') {
-  masterGain.gain.value = effectiveVolume();
-}
+if (typeof refreshMasterGain === 'function') refreshMasterGain();
 schedulePreview();
 }
 
@@ -349,13 +345,13 @@ function closeHelloAndGo() {
 
 // Hello → "Yes, use voice today". Synchronously kicks audio + mic.
 function onHelloYes() {
-  sessionUseVoice = true;
+  setSessionUseVoice(true);
   const audioP = (typeof ensureAudio === 'function') ? ensureAudio() : Promise.resolve();
   const micP   = (typeof acquireMic === 'function') ? acquireMic() : Promise.resolve(false);
   Promise.all([audioP, micP]).then(([_, micOk]) => {
     if (!micOk) {
       console.warn('[hello] mic acquisition failed — proceeding without VR for this session');
-      sessionUseVoice = false;
+      setSessionUseVoice(false);
     } else if (typeof vcKickOffLoad === 'function') {
       // Lazy-load the Vosk bundle now that the user has opted in.
       try { vcKickOffLoad(); } catch (e) { console.warn('[hello] vcKickOffLoad threw:', e); }
@@ -370,7 +366,7 @@ function onHelloYes() {
 
 // Hello → "No, not today". Only unlocks the audio context.
 function onHelloNo() {
-  sessionUseVoice = false;
+  setSessionUseVoice(false);
   const audioP = (typeof ensureAudio === 'function') ? ensureAudio() : Promise.resolve();
   audioP.then(() => {
     if (typeof wlAcquire === 'function') wlAcquire('hello-no');
@@ -625,7 +621,7 @@ function _performResumeRebuild(reason) {
   Promise.all([audioP, micP]).then(([_, micOk]) => {
     if (wantMic && !micOk) {
       console.warn('[resume] mic re-acquire failed — disabling VR for the rest of this session');
-      sessionUseVoice = false;
+      setSessionUseVoice(false);
     }
     if (typeof wlAcquire === 'function') wlAcquire('resume');
     if (sessionUseVoice && typeof vc !== 'undefined' && vc && vc.state === 'ready'

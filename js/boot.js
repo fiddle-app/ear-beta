@@ -94,7 +94,7 @@ if (sessionUseVoice && typeof acquireMic === 'function') {
 Promise.all([audioP, micP]).then(([_, micOk]) => {
   if (sessionUseVoice && !micOk) {
     console.warn('[start] mic acquisition failed — voice will be unavailable for this round');
-    sessionUseVoice = false;
+    setSessionUseVoice(false);
   }
   if (typeof wlAcquire === 'function') wlAcquire('start');
   _handleStartContinue();

@@ -5,7 +5,8 @@
 // =================================================
 // Exposed globals: audioCtx, audioCtxGeneration, audioUnlocked, masterGain,
 //                  masterLimiter, nukeAudioCtx(), ensureAudio(),
-//                  muteMasterGain(), unmuteMasterGain(), isAudioContextHealthy()
+//                  muteMasterGain(), unmuteMasterGain(), refreshMasterGain(),
+//                  isAudioContextHealthy()
 // Each app's audio.js may add its own synth functions that reference audioCtx,
 // and optionally a getMasterGainForSettings() global (see _resolveMasterGain)
 // and a getMasterLimiterOptions() global (see ensureAudio — opt-in master
@@ -174,6 +175,9 @@ let masterGain = null;
 // Optional master limiter (DynamicsCompressor) inserted between masterGain and
 // destination when the app defines getMasterLimiterOptions(). null when unused.
 let masterLimiter = null;
+// True while muteMasterGain() is in effect. refreshMasterGain() honours this so
+// a volume / boost / VC-state change can't silently defeat an active mute.
+let masterMuted = false;
 
 // Default master-gain resolver. Each app can define a global
 // `getMasterGainForSettings()` to return the right initial gain for its
@@ -266,6 +270,11 @@ function nukeAudioCtx(reason) {
   audioCtx   = null;
   masterGain = null;
   masterLimiter = null;
+  // Reset mute state with the graph: a rebuilt context starts on a fresh
+  // masterGain, and the foreground path always calls unmuteMasterGain() (or
+  // ensureAudio sets the resolved gain) after a nuke+rebuild, so starting
+  // unmuted can't strand audio silent.
+  masterMuted = false;
   audioUnlocked = false;
   audioCtxGeneration++;
   // Soundfont instruments are bound to the old context — clear so they reload on next play.
@@ -364,6 +373,7 @@ async function ensureAudio() {
 // .stop() times will clean them up.
 function muteMasterGain() {
   if (!audioCtx || !masterGain) return;
+  masterMuted = true;
   try {
     masterGain.gain.cancelScheduledValues(audioCtx.currentTime);
     masterGain.gain.setValueAtTime(0, audioCtx.currentTime);
@@ -375,11 +385,25 @@ function muteMasterGain() {
 // playing without forcing the user through a Resume modal.
 function unmuteMasterGain() {
   if (!audioCtx || !masterGain) return;
+  masterMuted = false;
   try {
     const v = _resolveMasterGain();
     masterGain.gain.cancelScheduledValues(audioCtx.currentTime);
     masterGain.gain.setValueAtTime(v, audioCtx.currentTime);
   } catch (e) {}
+}
+
+// Re-apply the app's current target gain (_resolveMasterGain → the app's
+// getMasterGainForSettings) — but ONLY when not muted, so a volume / boost /
+// VC-state change can't defeat an active mute. Apps call this whenever an
+// input to their effective volume changes (volume slider, VC boost, VC
+// on/off). No-op before the graph exists or while muted.
+function refreshMasterGain() {
+  if (!audioCtx || !masterGain || masterMuted) return;
+  // Bare .value= (not cancelScheduledValues+setValueAtTime) is fine: nothing
+  // schedules automation on masterGain.gain itself — per-note envelopes live on
+  // their own gain nodes, and mute/unmute are guarded by masterMuted above.
+  try { masterGain.gain.value = _resolveMasterGain(); } catch (e) {}
 }
 
 // Liveness probe: distinguishes a healthy AudioContext from the iOS

@@ -57,6 +57,17 @@ function appWantsMic() {
   return typeof sessionUseVoice !== 'undefined' && !!sessionUseVoice;
 }
 
+// Single choke point for changing sessionUseVoice. It gates the VC volume boost
+// (vcGainMultiplier → effectiveVolume), so every flip must re-apply the master
+// gain — otherwise the boost wouldn't take effect until the next context
+// rebuild. refreshMasterGain() is mute-aware, so this is safe to call from any
+// lifecycle path (resume, mic-fail) without defeating a mute. Route ALL
+// sessionUseVoice writes through here to keep gain in sync (B3).
+function setSessionUseVoice(v) {
+  sessionUseVoice = !!v;
+  if (typeof refreshMasterGain === 'function') refreshMasterGain();
+}
+
 // Mic constraints consumed by _shared/js/mic.js (getUserMedia). Disable iOS
 // voice processing — echoCancellation / noiseSuppression / autoGainControl —
 // so capture does NOT engage the voice-processing I/O unit (VPIO). VPIO
@@ -76,10 +87,12 @@ function appMicConstraints() {
 
 // Audio output destination — masterGain (when audioCtx exists) lets the
 // Volume setting scale every tone, beep, and chime in one place. Falls back
-// to ctx.destination if masterGain is not yet built.
+// to ctx.destination if masterGain is not yet built. PURE GETTER: gain is
+// kept current by refreshMasterGain() at the points effectiveVolume()'s inputs
+// change (adjustVolume, adjustVcGainBoost, setSessionUseVoice) — NOT here, so
+// this can't defeat an active mute (see _shared refreshMasterGain / B3).
 function audioOut() {
   if (typeof masterGain !== 'undefined' && masterGain) {
-    masterGain.gain.value = effectiveVolume();
     return masterGain;
   }
   return audioCtx.destination;
@@ -110,7 +123,8 @@ return sfLoadingP[sfName];
 // ══════════════════════════════════════════════════════
 function playSfNote(inst, midiF, startTime, duration, gain) {
 // Refresh instrument destination to current masterGain — handles instruments
-// loaded before audioCtx existed AND syncs masterGain.gain.value to settings.volume.
+// loaded before audioCtx existed. (Master gain level is owned by
+// refreshMasterGain(), not this path — see audioOut.)
 const dest = audioOut();
 if (inst && 'destination' in inst) inst.destination = dest;
 // soundfont-player: inst.play(note, time, options) — accepts fractional midi for detuning
