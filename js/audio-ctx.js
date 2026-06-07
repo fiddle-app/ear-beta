@@ -4,10 +4,13 @@
 // Used by: microbreaker, ear-tuner
 // =================================================
 // Exposed globals: audioCtx, audioCtxGeneration, audioUnlocked, masterGain,
-//                  nukeAudioCtx(), ensureAudio(), muteMasterGain(),
-//                  unmuteMasterGain(), isAudioContextHealthy()
+//                  masterLimiter, nukeAudioCtx(), ensureAudio(),
+//                  muteMasterGain(), unmuteMasterGain(), isAudioContextHealthy()
 // Each app's audio.js may add its own synth functions that reference audioCtx,
-// and optionally a getMasterGainForSettings() global (see _resolveMasterGain).
+// and optionally a getMasterGainForSettings() global (see _resolveMasterGain)
+// and a getMasterLimiterOptions() global (see ensureAudio — opt-in master
+// limiter; apps that don't define it keep the direct masterGain→destination
+// wiring unchanged).
 //
 // =================================================
 // DOCTRINE — read this before changing recovery code
@@ -168,6 +171,9 @@ let audioCtxGeneration = 0;   // bumped on every recreate — stale refs detect 
 let audioUnlocked     = false;
 
 let masterGain = null;
+// Optional master limiter (DynamicsCompressor) inserted between masterGain and
+// destination when the app defines getMasterLimiterOptions(). null when unused.
+let masterLimiter = null;
 
 // Default master-gain resolver. Each app can define a global
 // `getMasterGainForSettings()` to return the right initial gain for its
@@ -259,6 +265,7 @@ function nukeAudioCtx(reason) {
   const old = audioCtx;
   audioCtx   = null;
   masterGain = null;
+  masterLimiter = null;
   audioUnlocked = false;
   audioCtxGeneration++;
   // Soundfont instruments are bound to the old context — clear so they reload on next play.
@@ -302,7 +309,28 @@ async function ensureAudio() {
     });
     masterGain = audioCtx.createGain();
     masterGain.gain.value = _resolveMasterGain();
-    masterGain.connect(audioCtx.destination);
+    // Optional app-provided master limiter. If the app defines
+    // getMasterLimiterOptions() returning a config object, insert a
+    // DynamicsCompressor (brick-wall) between masterGain and destination —
+    // lets an app run hot per-voice gains (and a >1 volume/boost) without
+    // clipping transients. Apps that don't define it keep the original
+    // direct wiring, so siblings are unaffected.
+    let limOpts = null;
+    if (typeof getMasterLimiterOptions === 'function') {
+      try { limOpts = getMasterLimiterOptions(); } catch (_) {}
+    }
+    if (limOpts) {
+      masterLimiter = audioCtx.createDynamicsCompressor();
+      masterLimiter.threshold.value = limOpts.threshold ?? -2;
+      masterLimiter.knee.value      = limOpts.knee      ?? 0;
+      masterLimiter.ratio.value     = limOpts.ratio     ?? 20;
+      masterLimiter.attack.value    = limOpts.attack    ?? 0.003;
+      masterLimiter.release.value   = limOpts.release   ?? 0.10;
+      masterGain.connect(masterLimiter);
+      masterLimiter.connect(audioCtx.destination);
+    } else {
+      masterGain.connect(audioCtx.destination);
+    }
   }
   // 'suspended' is the normal post-create state (resumes via user
   // gesture). 'interrupted' is Safari-only: an in-flight iOS audio

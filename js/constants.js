@@ -14,23 +14,29 @@ const SOUNDS = [
 { id:'elec-bass',     label:'Electric Bass',      type:'sf', sfName:'electric_bass_finger'  },
 ];
 
-// Per-voice SF gain — calibrated by calibrate.js (target: violin × 1.5 current loudness, -22 dBFS).
-// Raw sample levels vary widely across instruments; these normalize them to equal loudness.
+// Per-voice SF gain — calibrated for equal PERCEIVED loudness (K-weighted LUFS,
+// ITU-R BS.1770) at a hot -12 LUFS target. Measured 2026-06-07 by calibrate2.js
+// (ffmpeg ebur128 on the real A4 samples; synth/sine rendered + measured the same
+// way). Supersedes the 2026-04-18 RMS calibration (-22 dBFS) — RMS under-served
+// the dull/peaky voices and over-served the bright ones. These levels are HOT and
+// rely on the master limiter (see getMasterLimiterOptions in audio.js): sustained
+// voices pass clean (peak ≤ -3.1 dBTP), the plucked instruments' attack transients
+// are caught by the limiter. Synth/sine peaks live in audio.js (0.695 / 0.385).
 const VOICE_GAIN = {
-  'violin':      8.22,
-  'viola':       6.03,
-  'cello':       3.39,
-  'contrabass':  2.40,
-  'gtr-nylon':   9.33,
-  'gtr-steel':  10.72,
-  'piano':      12.88,
-  'elec-bass':   9.66,
+  'violin':     16.79,
+  'viola':      12.74,
+  'cello':       6.24,
+  'contrabass':  5.96,
+  'gtr-nylon':  22.65,
+  'gtr-steel':  32.36,
+  'piano':      39.81,
+  'elec-bass':  32.36,
 };
 
 // ══════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════
-const BUILD_DATE  = '2026-06-06 19:02';   // stamped by deploy.sh — do not edit manually
+const BUILD_DATE  = '2026-06-07 10:49';   // stamped by deploy.sh — do not edit manually
 const CENTS_SEQ   = [100, 50, 25, 20, 15, 10, 7, 6, 5, 4.5, 4.0, 3.5, 3.0, 2.9, 2.8, 2.7, 2.6, 2.5, 2.4, 2.3, 2.2, 2.1, 2.0, 1.9, 1.8, 1.7, 1.6, 1.5, 1.4, 1.3, 1.2, 1.1, 1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1];
 const MAX_CENTS   = CENTS_SEQ[0]; // 100 — largest/easiest difference
 const fmtC        = c => Number.isInteger(c) ? c+'¢' : c.toFixed(1)+'¢'; // format cents value

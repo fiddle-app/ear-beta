@@ -8,6 +8,21 @@ function getMasterGainForSettings() {
   return effectiveVolume();
 }
 
+// Opt-in master limiter consumed by _shared/js/audio-ctx.js (ensureAudio).
+// Defining this inserts a DynamicsCompressor brick-wall between masterGain and
+// destination. Ear-tuner voices are calibrated hot (perceptual/LUFS match at a
+// -12 LUFS target; see VOICE_GAIN in constants.js + the synth/sine peaks below)
+// so the sustained voices are ~10 dB louder than the old RMS calibration. The
+// plucked instruments (guitar/piano/bass) have 14-20 dB attack transients that
+// would clip at that level; this limiter shaves those attacks instead. It also
+// catches the vcGainBoost (×2-4) overshoot in VC mode. Threshold -2 sits above
+// every sustained voice's true peak (≤ -3.1 dBTP), so the fiddle voices pass
+// through untouched; only the plucked attacks and boosted VC output are limited.
+// Calibrated 2026-06-07 (calibrate2.js, ebur128 / ITU-R BS.1770).
+function getMasterLimiterOptions() {
+  return { threshold: -2, knee: 0, ratio: 20, attack: 0.003, release: 0.10 };
+}
+
 // VC-mode loudness compensation. We disable iOS voice processing (VPIO) on the
 // mic to dodge the earpiece/quiet trap (see appMicConstraints), but that also
 // drops VPIO's AGC boost — so when the app wants the mic, output rides the
@@ -109,7 +124,7 @@ function playSynthViolin(freqHz, startTime, duration) {
 const ctx    = audioCtx;
 const atk    = ATK_PRESETS[settings.attack][1];
 const rel    = DEC_PRESETS[settings.decay][1];
-const peak   = 0.137, sus=0.65, dec=0.10;
+const peak   = 0.695, sus=0.65, dec=0.10;
 
 const mg = ctx.createGain(); mg.connect(audioOut());
 mg.gain.setValueAtTime(0,startTime);
@@ -153,8 +168,8 @@ const atk = ATK_PRESETS[settings.attack][1];
 const rel = DEC_PRESETS[settings.decay][1];
 const osc=ctx.createOscillator(), g=ctx.createGain();
 osc.type='sine'; osc.frequency.setValueAtTime(freqHz,startTime);
-g.gain.setValueAtTime(0,startTime); g.gain.linearRampToValueAtTime(0.112,startTime+atk);
-g.gain.setValueAtTime(0.112,startTime+duration-rel); g.gain.linearRampToValueAtTime(0,startTime+duration);
+g.gain.setValueAtTime(0,startTime); g.gain.linearRampToValueAtTime(0.385,startTime+atk);
+g.gain.setValueAtTime(0.385,startTime+duration-rel); g.gain.linearRampToValueAtTime(0,startTime+duration);
 osc.connect(g); g.connect(audioOut());
 osc.start(startTime); osc.stop(startTime+duration+0.1);
 return { gain:g, stopAt(t){ g.gain.cancelScheduledValues(t); g.gain.setValueAtTime(g.gain.value,t); g.gain.linearRampToValueAtTime(0,t+0.04); try{osc.stop(t+0.05);}catch(e){} } };
